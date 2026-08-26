@@ -12,12 +12,12 @@ from model.dataprocess.complete_workpiece.gun_distributors.OutFxGunDistributor i
 from model.dataprocess.complete_workpiece.gun_distributors.OutUpGunDistributor import OutUpGunDistributor
 from model.dataprocess.complete_workpiece.gun_distributors.XNIndependentYGunDistributor import XNIndependentYGunDistributor
 from model.dataprocess.complete_workpiece.gun_distributors.XNSharedYGunDistributor import XNSharedYGunDistributor
-from model.dataprocess.complete_workpiece.gun_distributors.XNUpDownGunDistributor import XNUpDownGunDistributor
+from model.dataprocess.complete_workpiece.gun_distributors.XNUpDown4GunDistributor import XNUpDown4GunDistributor
 
 
 class GunDistributor:
     IN_UP_MACHINE_TYPES = {"in_up"}
-    XN_UPDOWN_MACHINE_TYPES = {"xn_updown"}
+    XN_UPDOWN4_MACHINE_TYPES = {"xn_updown4"}
     OUT_DOWN_MACHINE_TYPES = {"out_down"}
     OUT_UP_MACHINE_TYPES = {"out_up"}
     OUT_FX_MACHINE_TYPES = {"out_fx"}
@@ -37,7 +37,7 @@ class GunDistributor:
         self.in_up_distributor = InUpGunDistributor()
         self.shared_side_distributor = XNSharedYGunDistributor()
         self.independent_side_distributor = XNIndependentYGunDistributor()
-        self.updown_distributor = XNUpDownGunDistributor()
+        self.updown4_distributor = XNUpDown4GunDistributor()
         self.out_down_distributor = OutDownGunDistributor()
         self.out_fx_distributor = OutFxGunDistributor()
         self.out_up_distributor = OutUpGunDistributor()
@@ -98,8 +98,8 @@ class GunDistributor:
 
         if machine_type in self.IN_UP_MACHINE_TYPES:
             gun_groups = self.in_up_distributor.distribute(blockdata, machine_cfg)
-        elif machine_type in self.XN_UPDOWN_MACHINE_TYPES:
-            gun_groups = self.updown_distributor.distribute(blockdata, machine_cfg, spray_width_distance)
+        elif machine_type in self.XN_UPDOWN4_MACHINE_TYPES:
+            gun_groups = self.updown4_distributor.distribute(blockdata, machine_cfg, spray_width_distance)
         elif machine_type in self.XN_SIDE_MACHINE_TYPES:
             gun_groups = self._get_xn_side_distributor().distribute(blockdata, machine_cfg, gun_distance)
         elif machine_type in self.OUT_UP_MACHINE_TYPES:

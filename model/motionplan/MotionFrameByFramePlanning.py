@@ -1,11 +1,12 @@
 from model.motionplan.MachineAxisMap import apply_device_axes_to_list
 from model.motionplan.MotionCleaningPlanning import MotionCleaningPlanning
 from model.motionplan.MotionManualOutFxPlanning import MotionManualOutFxPlanning
+from model.motionplan.MotionOut2DServoFramePlanning import MotionOut2DServoFramePlanning
 from model.motionplan.MotionOutFxFramePlanning import MotionOutFxFramePlanning
 from model.motionplan.MotionOutLiftFramePlanning import MotionOutLiftFramePlanning
-from model.motionplan.MotionXNUpdownFramePlanning import MotionXNUpdownFramePlanning
-from model.motionplan.motionutil.DeviceQueueHelper import DeviceQueueHelper
 from model.motionplan.MotionToTarget import MotionToTarget
+from model.motionplan.MotionXNUpdown4FramePlanning import MotionXNUpdown4FramePlanning
+from model.motionplan.motionutil.DeviceQueueHelper import DeviceQueueHelper
 from model.plc.MovingFrameData import SendMovingFrameData, create_axis_list
 
 
@@ -16,8 +17,9 @@ class MotionFrameByFramePlanning:
         self.out_fx_planner = MotionOutFxFramePlanning()
         self.manual_out_fx_planner = MotionManualOutFxPlanning()
         self.motion_to_target = MotionToTarget()
+        self.out_2d_servo_planner = MotionOut2DServoFramePlanning(self.motion_to_target)
         self.out_lift_planner = MotionOutLiftFramePlanning()
-        self.xn_updown_planner = MotionXNUpdownFramePlanning()
+        self.xn_updown4_planner = MotionXNUpdown4FramePlanning()
         self.device_queue_helper = DeviceQueueHelper()
         self.cleaning_planner = MotionCleaningPlanning()
 
@@ -39,8 +41,8 @@ class MotionFrameByFramePlanning:
         if force_disable_by_lidar or raw_data_timeout:
             stop_chain = True
 
-        # 外二维运动
-        self._handle_out_lift(proc, moving_frame)
+        if self._has_machine_type(proc.machine_config, "out_lift"):
+            self._handle_out_lift(proc, moving_frame)
 
         clean_mode_enabled, clean_mode_ready = self._resolve_clean_mode_state(proc, force_disable_all)
         clean_mode_just_closed = self._is_clean_mode_just_closed(proc, clean_mode_enabled)
@@ -76,8 +78,8 @@ class MotionFrameByFramePlanning:
                 )
 
                 if not device_operate_enabled or should_return_safe:
-                    if machine_type == "xn_updown":
-                        self.xn_updown_planner.reset_motion_state(sn)
+                    if machine_type == "xn_updown4":
+                        self.xn_updown4_planner.reset_motion_state(sn)
                     if should_return_safe:
                         axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(machine_cfg, runtime_cfg, proc.plc_data)
                         proc.device_returning_to_origin[sn] = not all_ready
@@ -96,16 +98,30 @@ class MotionFrameByFramePlanning:
                     proc.device_returning_to_origin[sn] = False
                     proc.device_origin_complete[sn] = False
 
-                    if machine_type == "xn_updown":
-                        axis_cmds = self.xn_updown_planner.auto_xn_updown_move(machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager)
+                    if machine_type == "xn_updown4":
+                        axis_cmds = self.xn_updown4_planner.auto_xn_updown4_move(
+                            machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
+                        )
                         device_stop_chain = False
-                    else:
+                    elif machine_type == "out_2d_servo":
+                        axis_cmds, all_ready, device_stop_chain = self.out_2d_servo_planner.auto_out_2d_servo_move(
+                            machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
+                        )
+                        proc.device_returning_to_origin[sn] = not all_ready
+                        proc.device_origin_complete[sn] = all_ready
+                    elif machine_type == "out_fx":
                         axis_cmds, _, device_stop_chain = self.out_fx_planner.auto_out_fx_move(
                             machine_cfg=machine_cfg,
                             runtime_cfg=runtime_cfg,
                             plc_data=proc.plc_data,
                             frame_queue_manager=proc.frame_queue_manager,
                         )
+                    else:
+                        # 尚无自动轨迹的设备统一回安全位置。
+                        axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(machine_cfg, runtime_cfg, proc.plc_data)
+                        proc.device_returning_to_origin[sn] = not all_ready
+                        proc.device_origin_complete[sn] = all_ready
+                        device_stop_chain = False
 
                     stop_chain = stop_chain or device_stop_chain
 
@@ -154,8 +170,8 @@ class MotionFrameByFramePlanning:
         return clean_mode_enabled, clean_mode_ready
 
     def _handle_clean_mode_device(self, proc, sn, machine_cfg, runtime_cfg, clean_mode_ready, axis_list, enable_value):
-        if machine_cfg.get("type") == "xn_updown":
-            self.xn_updown_planner.reset_motion_state(sn)
+        if machine_cfg.get("type") == "xn_updown4":
+            self.xn_updown4_planner.reset_motion_state(sn)
         proc.device_returning_to_origin[sn] = False
         proc.device_origin_complete[sn] = False
         axis_cmds = self.cleaning_planner.build_device_axis_cmds(machine_cfg, runtime_cfg, clean_mode_ready)
@@ -181,6 +197,10 @@ class MotionFrameByFramePlanning:
         spray_mode = int(proc.mode_config.get("spray_mode", 0) or 0)
         return spray_mode == 1
 
+    @staticmethod
+    def _has_machine_type(machine_config: dict, machine_type: str) -> bool:
+        return any(str(machine_cfg.get("type", "") or "").strip() == machine_type for machine_cfg in machine_config.values())
+
     def _build_manual_mode_enable_and_axes(self, proc, axis_list: list) -> int:
         enable_value = 0x01
         for sn in range(proc.num_devices):
@@ -193,10 +213,10 @@ class MotionFrameByFramePlanning:
             machine_type = machine_cfg.get("type", "")
             device_bit = sn + 1
             device_operate_enabled = (proc.plc_data.Operate & (1 << device_bit)) != 0
-            if machine_type == "xn_updown":
-                self.xn_updown_planner.reset_motion_state(sn)
+            if machine_type == "xn_updown4":
+                self.xn_updown4_planner.reset_motion_state(sn)
 
-            if machine_type == "xn_updown" and device_operate_enabled:
+            if machine_type == "xn_updown4" and device_operate_enabled:
                 axis_cmds = self.motion_to_target.hold_current_position(machine_cfg, proc.plc_data)
                 proc.device_returning_to_origin[sn] = False
                 proc.device_origin_complete[sn] = False

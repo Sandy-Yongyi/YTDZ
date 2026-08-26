@@ -3,7 +3,7 @@ from model.formats.complete_workpiece.BlockDataFormat import GunGroupData
 from model.dataprocess.complete_workpiece.gun_distributors.BaseGunDistributor import BaseGunDistributor
 
 
-class XNUpDownGunDistributor(BaseGunDistributor):
+class XNUpDown4GunDistributor(BaseGunDistributor):
     def distribute(self, blockdata, mcfg, spray_width_distance):
         if not blockdata.outside_data or not blockdata.inside_data:
             return self._build_updown_zero_groups()

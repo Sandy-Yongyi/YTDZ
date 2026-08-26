@@ -34,9 +34,32 @@ class MachineConfigFrame(wx.Dialog):
         "recip_reduce_distance": "往复减少距离(mm)",
     }
 
+    OUT_2D_SERVO_PARAM_KEYS = [
+        "out_front_x_offset",
+        "x_pos_speed",
+        "out_up_y_offset",
+        "out_down_y_offset",
+        "y_pos_speed",
+        "y_recip_speed",
+        "out_z_front_offset",
+        "out_z_after_offset",
+        "recip_reduce_distance",
+    ]
+
     OUT_LIFT_PARAM_KEYS = ["out_z_front_offset", "out_z_after_offset"]
 
-    XN_UPDOWN_PARAM_KEYS = [
+    XN_UPDOWN2_PARAM_KEYS = [
+        "out_front_x_offset",
+        "out_after_x_offset",
+        "x_pos_speed",
+        "x_recip_speed",
+        "out_up_y_offset",
+        "out_down_y_offset",
+        "y_pos_speed",
+        "out_z_front_offset",
+        "out_z_after_offset",
+    ]
+    XN_UPDOWN4_PARAM_KEYS = [
         "out_front_x_offset",
         "out_after_x_offset",
         "x_pos_speed",
@@ -90,10 +113,17 @@ class MachineConfigFrame(wx.Dialog):
     def _get_param_order_for_config(self, sn: int, machine_cfg: dict):
         """根据SN号返回需要显示的参数列表"""
         if self.strategy_name == "frame_by_frame":
-            if machine_cfg.get("type") == "xn_updown":
-                keys = self.XN_UPDOWN_PARAM_KEYS
-            else:
+            machine_type = machine_cfg.get("type")
+            if machine_type == "xn_updown4":
+                keys = self.XN_UPDOWN4_PARAM_KEYS
+            elif machine_type == "xn_updown2":
+                keys = self.XN_UPDOWN2_PARAM_KEYS
+            elif machine_type == "out_2d_servo":
+                keys = self.OUT_2D_SERVO_PARAM_KEYS
+            elif machine_type == "out_lift":
                 keys = self.OUT_LIFT_PARAM_KEYS
+            else:
+                keys = []
         else:
             keys = self.DEVICE_PARAM_KEYS.get(sn, [])
         return [(key, self.PARAM_LABELS[key]) for key in keys if key in self.PARAM_LABELS]

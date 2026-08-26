@@ -76,9 +76,8 @@ class MainFrameController(MainFrame):
         # 绑定按钮事件
         self.start_btn.Bind(wx.EVT_BUTTON, self._handle_start_with_password)
         self.stop_btn.Bind(wx.EVT_BUTTON, self._handle_stop_with_password)
-        self.left_out_fx_btn.Bind(wx.EVT_BUTTON, lambda e: self._open_machine_config_with_password(0))
-        self.left_xn_side_btn.Bind(wx.EVT_BUTTON, lambda e: self._open_machine_config_with_password(1))
-        self.right_xn_side_btn.Bind(wx.EVT_BUTTON, lambda e: self._open_machine_config_with_password(2))
+        for sn, button in self.machine_config_buttons.items():
+            button.Bind(wx.EVT_BUTTON, lambda e, target_sn=sn: self._open_machine_config_with_password(target_sn))
         self.Bind(wx.EVT_CLOSE, self.on_close)
 
     def _ensure_password_config(self):
@@ -160,7 +159,7 @@ class MainFrameController(MainFrame):
             print("系统已在运行中")
             return
 
-        print("now start main.exe version is 2026/7/27 PM")
+        print("now start main.exe version is 2026/8/27 PM")
         print("启动系统...")
         self.running = True
         self._process_fault_handled = False
@@ -182,7 +181,7 @@ class MainFrameController(MainFrame):
 
         if self.control_type == 1:
             # --------------------------调试数据处理----------------------------------------
-            data_paths = r"D:\draw_points\temp"
+            data_paths = r"D:\draw_points\JRQC"
             data_name = "20260716_102537.txt"  # 陕西中集
 
             # 创建进程通信队列

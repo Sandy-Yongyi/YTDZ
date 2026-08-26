@@ -2,11 +2,14 @@
 设备轴索引映射配置模块。
 
 根据当前策略对应 MachineConfig1/2/3.toml 的 type 和 install_orietation，查找 PLC AxisList
-中对应的轴索引。当前 Lab_Auto 第一阶段设备顺序：
+中对应的轴索引。当前按帧模式设备顺序：
 
-    sn=0 out_fx left     : 0~9   (z, y, x1~x8)
-    sn=1 xn_side left    : 10~28 (z, y1, x1, r1, ..., y6, x6, r6)
-    sn=2 xn_side right   : 29~47 (z, y1, x1, r1, ..., y6, x6, r6)
+    sn=0 xn_updown2 left     : 0~3   (y1, x1, y2, x2)
+    sn=1 out_2d_servo left   : 4~5   (y, x)
+    sn=2 xn_updown2 right    : 6~9   (y1, x1, y2, x2)
+    sn=3 out_2d_servo right  : 10~11 (y, x)
+
+旧七轴类型更名为 xn_updown4，避免与本项目四轴顶底设备混用。
 """
 
 from model.utils.LoggerUtil import logger
@@ -15,8 +18,8 @@ from model.plc.MovingFrameData import AxisData
 
 
 AXIS_LIMIT_KEY: dict[str, dict[str, int]] = {
-    "out_fx": {"z": 0, "y": 1, "x": 2},
-    "xn_side": {"z": 0, "y": 1, "x": 2, "r": 3},
+    "xn_updown2": {"y": 0, "x": 1},
+    "out_2d_servo": {"y": 0, "x": 1},
 }
 
 
@@ -62,39 +65,13 @@ def get_axis_safe_pos(machine_cfg: dict, axis_name: str, default: int = 0) -> in
 
 
 MACHINE_AXIS_MAP = {
-    "out_fx": {
-        "left": dict(
-            z=0,
-            y=1,
-            x1=2,
-            x2=3,
-            x3=4,
-            x4=5,
-            x5=6,
-            x6=7,
-            x7=8,
-            x8=9,
-        ),
+    "xn_updown2": {
+        "left": dict(y1=0, x1=1, y2=2, x2=3),
+        "right": dict(y1=6, x1=7, y2=8, x2=9),
     },
-    "xn_side": {
-        "left": dict(
-            z=10,
-            y1=11, x1=12, r1=13,
-            y2=14, x2=15, r2=16,
-            y3=17, x3=18, r3=19,
-            y4=20, x4=21, r4=22,
-            y5=23, x5=24, r5=25,
-            y6=26, x6=27, r6=28,
-        ),
-        "right": dict(
-            z=29,
-            y1=30, x1=31, r1=32,
-            y2=33, x2=34, r2=35,
-            y3=36, x3=37, r3=38,
-            y4=39, x4=40, r4=41,
-            y5=42, x5=43, r5=44,
-            y6=45, x6=46, r6=47,
-        ),
+    "out_2d_servo": {
+        "left": dict(y=4, x=5),
+        "right": dict(y=10, x=11),
     },
 }
 
@@ -140,11 +117,7 @@ def _limit_axis_command(machine_cfg: dict, axis_name: str, axis_data: AxisData) 
     if min_position > max_position:
         raise ValueError(f"轴 {axis_name} 的位置限位无效: {min_position} > {max_position}")
     max_speed = get_axis_speed_limit(machine_cfg, axis_name)
-    return AxisData(
-        Pos=clamp_to_limit_yx(int(axis_data.Pos), min_position, max_position),
-        Speed=clamp_speed(int(axis_data.Speed), max_speed),
-        Status=int(axis_data.Status),
-    )
+    return AxisData(Pos=clamp_to_limit_yx(int(axis_data.Pos), min_position, max_position), Speed=clamp_speed(int(axis_data.Speed), max_speed), Status=int(axis_data.Status))
 
 
 def apply_to_axis_list(machine_data: dict, machine_cfg: dict, axis_list: list):

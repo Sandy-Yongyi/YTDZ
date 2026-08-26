@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from model.motionplan.MachineAxisMap import get_axis_map, get_axis_position_limits, get_axis_speed_limit
 from model.motionplan.MotionToTarget import MotionToTarget
 from model.motionplan.motionutil.AxisLimits import build_axis, clamp_to_limit_yx
-from model.motionplan.motionutil.XNUpdownFrameSearchHelper import XNUpdownFrameSearchHelper
+from model.motionplan.motionutil.XNUpdown4FrameSearchHelper import XNUpdown4FrameSearchHelper
 from model.utils.TomlLoader import TomlLoader
 
 
 @dataclass
-class XNUpdownGunTarget:
+class XNUpdown4GunTarget:
     gun_id: int
     y_target: int | None
     x_min_target: int
@@ -19,8 +19,8 @@ class XNUpdownGunTarget:
 
 
 @dataclass
-class XNUpdownDeviceState:
-    targets: dict[int, XNUpdownGunTarget] = field(default_factory=dict)
+class XNUpdown4DeviceState:
+    targets: dict[int, XNUpdown4GunTarget] = field(default_factory=dict)
     x_phases: dict[int, str] = field(default_factory=dict)
 
     @property
@@ -28,8 +28,8 @@ class XNUpdownDeviceState:
         return bool(self.targets)
 
 
-class MotionXNUpdownFramePlanning:
-    """顶底设备按帧目标锁存、独立定位和持续X往复规划。"""
+class MotionXNUpdown4FramePlanning:
+    """旧四枪顶底设备（xn_updown4）按帧运动规划。"""
 
     def __init__(self, read_data_cfg=None, spray_cfg=None, motion_to_target=None):
         config_dir = os.path.join(os.getcwd(), "model", "tomls")
@@ -41,8 +41,8 @@ class MotionXNUpdownFramePlanning:
         if self.z_threshold <= 0:
             raise ValueError(f"z_threshold 必须大于 0，当前值: {self.z_threshold}")
         self.tolerance = int(self.spray_cfg.get("spray_pos_tolerance", 10) or 10)
-        self.search_helper = XNUpdownFrameSearchHelper(z_threshold=self.z_threshold)
-        self._states: dict[int, XNUpdownDeviceState] = {}
+        self.search_helper = XNUpdown4FrameSearchHelper(z_threshold=self.z_threshold)
+        self._states: dict[int, XNUpdown4DeviceState] = {}
 
     def reset_motion_state(self, sn=None):
         if sn is None:
@@ -50,9 +50,9 @@ class MotionXNUpdownFramePlanning:
             return
         self._states.pop(int(sn), None)
 
-    def auto_xn_updown_move(self, machine_cfg, runtime_cfg, plc_data, frame_queue_manager):
+    def auto_xn_updown4_move(self, machine_cfg, runtime_cfg, plc_data, frame_queue_manager):
         sn = int(machine_cfg.get("sn", 0) or 0)
-        state = self._states.setdefault(sn, XNUpdownDeviceState())
+        state = self._states.setdefault(sn, XNUpdown4DeviceState())
         frames = self.search_helper.get_frames(machine_cfg, frame_queue_manager)
         search_window = self.search_helper.get_search_window(machine_cfg, runtime_cfg, len(frames))
         in_up_y_offset = self._get_config_int(machine_cfg, runtime_cfg, "in_up_y_offset", 100)
@@ -96,10 +96,10 @@ class MotionXNUpdownFramePlanning:
         y3_allowed = int(upper.y_min) >= int(structure.up_y_min) + in_up_y_offset * 2  # type: ignore
         y4_has_collision = self.search_helper.has_data_in_y_band(frames, spray_window, origin_pos[3] - out_up_y_offset, origin_pos[3] + out_up_y_offset)
         targets = {
-            1: XNUpdownGunTarget(1, y_targets[0], lower_x_min, lower_x_max, lower_x_valid),
-            2: XNUpdownGunTarget(2, y_targets[1], lower_x_min, lower_x_max, lower_x_valid and y2_allowed),
-            3: XNUpdownGunTarget(3, y_targets[2], upper_x_min, upper_x_max, upper_x_valid and y3_allowed),
-            4: XNUpdownGunTarget(4, None, upper_x_min, upper_x_max, upper_x_valid and not y4_has_collision),
+            1: XNUpdown4GunTarget(1, y_targets[0], lower_x_min, lower_x_max, lower_x_valid),
+            2: XNUpdown4GunTarget(2, y_targets[1], lower_x_min, lower_x_max, lower_x_valid and y2_allowed),
+            3: XNUpdown4GunTarget(3, y_targets[2], upper_x_min, upper_x_max, upper_x_valid and y3_allowed),
+            4: XNUpdown4GunTarget(4, None, upper_x_min, upper_x_max, upper_x_valid and not y4_has_collision),
         }
         self._apply_y_collision_rules(targets)
         return targets
