@@ -17,6 +17,10 @@ from model.motionplan.motionutil.AxisLimits import clamp_speed, clamp_to_limit_y
 from model.plc.MovingFrameData import AxisData
 
 
+INT16_MIN = -32768
+INT16_MAX = 32767
+
+
 AXIS_LIMIT_KEY: dict[str, dict[str, int]] = {
     "xn_updown2": {"y": 0, "x": 1},
     "out_2d_servo": {"y": 0, "x": 1},
@@ -113,11 +117,25 @@ def get_all_axis_indices(machine_type: str, orientation: str) -> list:
 
 def _limit_axis_command(machine_cfg: dict, axis_name: str, axis_data: AxisData) -> AxisData:
     """在写入 PLC 报文前统一限制单轴位置和速度。"""
+    machine_type = machine_cfg.get("type", "")
+    if machine_type == "out_2d_servo" and axis_name == "y":
+        pos = int(axis_data.Pos)
+        speed = int(axis_data.Speed)
+        if not (INT16_MIN <= pos <= INT16_MAX and INT16_MIN <= speed <= INT16_MAX):
+            sn = machine_cfg.get("sn", "?")
+            logger.error(
+                f"SN[{sn}] out_2d_servo Y点云载荷超出Int16，当前轴发送零值: "
+                f"Pos={pos}, Speed={speed}"
+            )
+            return AxisData()
+        return AxisData(Pos=pos, Speed=speed, Status=0)
+
     min_position, max_position = get_axis_position_limits(machine_cfg, axis_name)
     if min_position > max_position:
         raise ValueError(f"轴 {axis_name} 的位置限位无效: {min_position} > {max_position}")
     max_speed = get_axis_speed_limit(machine_cfg, axis_name)
-    return AxisData(Pos=clamp_to_limit_yx(int(axis_data.Pos), min_position, max_position), Speed=clamp_speed(int(axis_data.Speed), max_speed), Status=int(axis_data.Status))
+    status = 0 if machine_type == "out_2d_servo" else int(axis_data.Status)
+    return AxisData(Pos=clamp_to_limit_yx(int(axis_data.Pos), min_position, max_position), Speed=clamp_speed(int(axis_data.Speed), max_speed), Status=status)
 
 
 def apply_to_axis_list(machine_data: dict, machine_cfg: dict, axis_list: list):

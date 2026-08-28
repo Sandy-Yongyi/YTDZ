@@ -37,13 +37,8 @@ class MachineConfigFrame(wx.Dialog):
     OUT_2D_SERVO_PARAM_KEYS = [
         "out_front_x_offset",
         "x_pos_speed",
-        "out_up_y_offset",
-        "out_down_y_offset",
-        "y_pos_speed",
-        "y_recip_speed",
         "out_z_front_offset",
         "out_z_after_offset",
-        "recip_reduce_distance",
     ]
 
     OUT_LIFT_PARAM_KEYS = ["out_z_front_offset", "out_z_after_offset"]
