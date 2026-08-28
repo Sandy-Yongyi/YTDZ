@@ -37,7 +37,7 @@ install_orietation = "left"
 max_limit_speed = [500, 500]                 # Y, X
 min_limit_pos = [0, 0]                       # Y, X
 max_limit_pos = [1000, 900]                  # Y, X
-origin_pos = [1020, 1320]                    # Y1, Y2
+origin_pos = [1020, 2500]                    # Y1, Y2
 safe_pos = [0, 0]                            # Y, X
 
 [1]
@@ -45,7 +45,7 @@ sn = 1
 type = "out_2d_servo"
 x_position = 0
 z_position = 4970
-spray_num = 1
+spray_num = 6
 tracking = 0
 y_move_min = 0
 y_move_max = 300
@@ -79,7 +79,7 @@ install_orietation = "left"
 max_limit_speed = [500, 500]                 # Y, X
 min_limit_pos = [0, 0]                       # Y, X
 max_limit_pos = [1000, 1000]                 # Y, X
-origin_pos = [0]
+origin_pos = [1000, 1300, 1600, 1900, 2200, 2500]
 safe_pos = [0, 0]                            # Y, X
 
 [2]
@@ -121,7 +121,7 @@ install_orietation = "right"
 max_limit_speed = [500, 500]                 # Y, X
 min_limit_pos = [0, 0]                       # Y, X
 max_limit_pos = [1000, 900]                  # Y, X
-origin_pos = [1020, 1320]                    # Y1, Y2
+origin_pos = [1020, 2500]                    # Y1, Y2
 safe_pos = [0, 0]                            # Y, X
 
 [3]
@@ -129,7 +129,7 @@ sn = 3
 type = "out_2d_servo"
 x_position = 0
 z_position = 4970
-spray_num = 1
+spray_num = 6
 tracking = 0
 y_move_min = 0
 y_move_max = 300
@@ -163,5 +163,5 @@ install_orietation = "right"
 max_limit_speed = [500, 500]                 # Y, X
 min_limit_pos = [0, 0]                       # Y, X
 max_limit_pos = [1000, 1000]                 # Y, X
-origin_pos = [0]
+origin_pos = [1000, 1300, 1600, 1900, 2200, 2500]
 safe_pos = [0, 0]                            # Y, X

@@ -140,15 +140,20 @@ class FrameQueueManager:
         # 批量前插当前帧，再截断尾部，避免逐帧循环右移
         self.frame_stack[direction] = [frame_data] * shift_count + stack[: self.stack_size - shift_count]
 
-    def push_workpiece(self, direction: str, sn: int, data: Any):
-        """complete_workpiece 模式下向指定方向/设备队列追加一个工件数据。"""
+    def push_workpiece(self, direction: str, sn: int, data: Any) -> tuple[bool, int | None, bool]:
+        """
+        complete_workpiece 模式下向指定方向/设备队列追加工件。
+
+        返回值：
+        (是否成功, 插入索引, 是否因队列已满而左移)
+        """
         if direction not in self.queues:
             logger.error(f"Direction {direction} not found in queues")
-            return False
+            return False, None, False
 
         if sn not in self.queues[direction]:
             logger.error(f"SN {sn} not found in {direction} queues")
-            return False
+            return False, None, False
 
         data_copy = copy.deepcopy(data) if data is not None else None
         queue = self.queues[direction][sn]
@@ -157,19 +162,19 @@ class FrameQueueManager:
 
         if all_empty:
             queue[0] = data_copy
-            return True
+            return True, 0, False
 
         if queue[-1] is not None and not self._is_empty_data(queue[-1]):
             self.shift_queue(direction, sn)
             queue[-1] = data_copy
-            return True
+            return True, len(queue) - 1, True
 
         for i in range(len(queue)):
             if queue[i] is None or self._is_empty_data(queue[i]):
                 queue[i] = data_copy
-                return True
+                return True, i, False
 
-        return False
+        return False, None, False
 
     def _is_empty_data(self, data: Any) -> bool:
         if data is None:

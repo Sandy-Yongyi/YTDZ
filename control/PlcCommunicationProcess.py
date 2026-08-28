@@ -396,16 +396,20 @@ class PlcCommunicationProcess(multiprocessing.Process):
 
         status = "stopped"
         if len(self.pulse_history) == 5:
-            min_val = min(self.pulse_history)
-            max_val = max(self.pulse_history)
-            diff = max_val - min_val
+            pulse_delta = float(self.pulse_history[-1]) - float(self.pulse_history[0])
+            half_pulse_range = float(self.max_pulse) / 2.0
+            # 脉冲计数由最大值回到0时仍是正向运动，例如159997 -> 4的实际增量为7。
+            if pulse_delta < -half_pulse_range:
+                pulse_delta += float(self.max_pulse)
+            elif pulse_delta > half_pulse_range:
+                pulse_delta -= float(self.max_pulse)
             # logger.info(f"pulse_history: {self.pulse_history}")
             # 停止
             if len(set(self.pulse_history)) == 1:
                 status = "stopped"
-            elif diff > self.diff_start_pulse and self.pulse_history[0] < self.pulse_history[-1]:
+            elif pulse_delta > self.diff_start_pulse:
                 status = "moving_forward"
-            elif diff > self.diff_start_pulse and self.pulse_history[0] > self.pulse_history[-1]:
+            elif pulse_delta < -self.diff_start_pulse:
                 status = "moving_reverse"
 
         last_status = getattr(self, "chain_motion_status", None)
@@ -483,9 +487,27 @@ class PlcCommunicationProcess(multiprocessing.Process):
                         block_data = self._build_machine_workpiece(base_block_data, sn)
                         frame_item = {"stop_pulse": stop_pulse, "data": block_data}
                         logger.info(f"Push complete workpiece data to queue: direction={direction}, sn={sn}, stop_pulse={stop_pulse}, block_data={block_data}")
-                        self.frame_queue_manager.push_workpiece(direction=direction, sn=sn, data=frame_item)
+                        success, insert_index, shifted = self.frame_queue_manager.push_workpiece(direction=direction, sn=sn, data=frame_item)
+                        if success and insert_index is not None:
+                            self._update_workpiece_tracking_after_push(direction, sn, insert_index, shifted)
         except Exception as e:
             logger.error(f"Error processing machine queue: {str(e)}")
+
+    def _update_workpiece_tracking_after_push(self, direction: str, sn: int, insert_index: int, shifted: bool):
+        """工件队列入队后同步位置跟踪索引，并让新工件首次从自身stop_pulse开始累计。"""
+        direction_mm_map = self.last_workpiece_chain_mm.setdefault(direction, {})
+        sn_mm_map = direction_mm_map.get(sn, {})
+        if shifted:
+            sn_mm_map = {int(old_idx) - 1: value for old_idx, value in sn_mm_map.items() if int(old_idx) > 0}
+        sn_mm_map.pop(int(insert_index), None)
+        direction_mm_map[sn] = sn_mm_map
+
+        direction_residual_map = self.last_workpiece_chain_mm_residual.setdefault(direction, {})
+        sn_residual_map = direction_residual_map.get(sn, {})
+        if shifted:
+            sn_residual_map = {int(old_idx) - 1: value for old_idx, value in sn_residual_map.items() if int(old_idx) > 0}
+        sn_residual_map.pop(int(insert_index), None)
+        direction_residual_map[sn] = sn_residual_map
 
     def _build_machine_workpiece(self, block_data, sn: int):
         if not isinstance(block_data, BlockData):
