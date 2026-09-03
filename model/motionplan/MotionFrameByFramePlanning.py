@@ -5,6 +5,7 @@ from model.motionplan.MotionOut2DServoFramePlanning import MotionOut2DServoFrame
 from model.motionplan.MotionOutFxFramePlanning import MotionOutFxFramePlanning
 from model.motionplan.MotionOutLiftFramePlanning import MotionOutLiftFramePlanning
 from model.motionplan.MotionToTarget import MotionToTarget
+from model.motionplan.MotionXNUpdown2FramePlanning import MotionXNUpdown2FramePlanning
 from model.motionplan.MotionXNUpdown4FramePlanning import MotionXNUpdown4FramePlanning
 from model.motionplan.motionutil.DeviceQueueHelper import DeviceQueueHelper
 from model.plc.MovingFrameData import SendMovingFrameData, create_axis_list
@@ -19,27 +20,20 @@ class MotionFrameByFramePlanning:
         self.motion_to_target = MotionToTarget()
         self.out_2d_servo_planner = MotionOut2DServoFramePlanning(self.motion_to_target)
         self.out_lift_planner = MotionOutLiftFramePlanning()
+        self.xn_updown2_planner = MotionXNUpdown2FramePlanning()
         self.xn_updown4_planner = MotionXNUpdown4FramePlanning()
         self.device_queue_helper = DeviceQueueHelper()
         self.cleaning_planner = MotionCleaningPlanning()
 
     def build_moving_frame(self, proc) -> SendMovingFrameData:
         moving_frame = SendMovingFrameData()
-        enable_value = 0
-        stop_chain = False
-
-        # 获取使能状态：Operate 的 bit0
         plc_enable = (proc.plc_data.Operate & 0x01) == 1
         axis_list = create_axis_list()
-        # 检查伺服状态
         servo_alarm = proc.plc_data.Status != 1
-
         lidar_abnormal = int(getattr(proc, "lidar_status", 0) or 0) in (1, 2, 3)
         raw_data_timeout = bool(getattr(proc, "raw_data_timeout_active", False))
         force_disable_all = (not plc_enable) or servo_alarm or lidar_abnormal or raw_data_timeout
-        force_disable_by_lidar = lidar_abnormal
-        if force_disable_by_lidar or raw_data_timeout:
-            stop_chain = True
+        stop_chain = lidar_abnormal or raw_data_timeout
 
         if self._has_machine_type(proc.machine_config, "out_lift"):
             self._handle_out_lift(proc, moving_frame)
@@ -48,92 +42,19 @@ class MotionFrameByFramePlanning:
         clean_mode_just_closed = self._is_clean_mode_just_closed(proc, clean_mode_enabled)
         if clean_mode_enabled and clean_mode_ready:
             stop_chain = True
+
         if clean_mode_enabled:
             enable_value = self._build_clean_mode_enable_and_axes(proc, clean_mode_ready, axis_list)
         elif self._is_manual_mode_enabled(proc) and not force_disable_all:
             enable_value = self._build_manual_mode_enable_and_axes(proc, axis_list)
-
-        # 自动模式 + 强制回原点场景都统一走该分支，通过 device_operate_enabled=False 实现
         else:
-            effective_operate = 0 if force_disable_all else proc.plc_data.Operate
-            for sn in range(proc.num_devices):
-                machine_cfg = proc.machine_config.get(str(sn))
-                if not machine_cfg:
-                    continue
-                machine_type = machine_cfg.get("type", "")
-                if machine_type == "out_lift":
-                    continue
-                runtime_cfg = proc.runtime_machine_config.get(sn, {})
-
-                device_bit = sn + 1
-                device_operate_enabled = (effective_operate & (1 << device_bit)) != 0
-
-                last_device_operate = (proc.last_operate_state & (1 << device_bit)) != 0
-                device_just_closed = last_device_operate and not device_operate_enabled
-                should_return_safe = self._should_return_safe_before_idle(
-                    device_operate_enabled=device_operate_enabled,
-                    device_just_closed=device_just_closed,
-                    clean_mode_just_closed=clean_mode_just_closed,
-                    device_returning=proc.device_returning_to_origin[sn],
-                )
-
-                if not device_operate_enabled or should_return_safe:
-                    if machine_type == "xn_updown4":
-                        self.xn_updown4_planner.reset_motion_state(sn)
-                    if machine_type == "out_2d_servo":
-                        axis_cmds, all_ready = self.out_2d_servo_planner.build_zero_commands(
-                            machine_cfg, runtime_cfg, proc.plc_data
-                        )
-                        proc.device_returning_to_origin[sn] = not all_ready
-                    elif should_return_safe:
-                        axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(machine_cfg, runtime_cfg, proc.plc_data)
-                        proc.device_returning_to_origin[sn] = not all_ready
-                    else:
-                        axis_cmds = self.motion_to_target.hold_current_position(machine_cfg, proc.plc_data)
-                        all_ready = proc.device_origin_complete.get(sn, False)
-
-                    if axis_cmds:
-                        apply_device_axes_to_list(proc.machine_config, sn, axis_cmds, axis_list)
-
-                    proc.device_origin_complete[sn] = all_ready
-                    if not all_ready:
-                        enable_value |= 1 << device_bit
-
-                else:
-                    proc.device_returning_to_origin[sn] = False
-                    proc.device_origin_complete[sn] = False
-
-                    if machine_type == "xn_updown4":
-                        axis_cmds = self.xn_updown4_planner.auto_xn_updown4_move(
-                            machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
-                        )
-                        device_stop_chain = False
-                    elif machine_type == "out_2d_servo":
-                        axis_cmds, device_stop_chain = self.out_2d_servo_planner.auto_out_2d_servo_move(
-                            machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
-                        )
-                    elif machine_type == "out_fx":
-                        axis_cmds, _, device_stop_chain = self.out_fx_planner.auto_out_fx_move(
-                            machine_cfg=machine_cfg,
-                            runtime_cfg=runtime_cfg,
-                            plc_data=proc.plc_data,
-                            frame_queue_manager=proc.frame_queue_manager,
-                        )
-                    else:
-                        # 尚无自动轨迹的设备统一回安全位置。
-                        axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(machine_cfg, runtime_cfg, proc.plc_data)
-                        proc.device_returning_to_origin[sn] = not all_ready
-                        proc.device_origin_complete[sn] = all_ready
-                        device_stop_chain = False
-
-                    stop_chain = stop_chain or device_stop_chain
-
-                    if axis_cmds:
-                        apply_device_axes_to_list(proc.machine_config, sn, axis_cmds, axis_list)
-
-                    enable_value |= 1 << device_bit
-            if not force_disable_all:
-                enable_value |= 0x01
+            enable_value, auto_stop_chain = self._build_auto_mode_enable_and_axes(
+                proc=proc,
+                force_disable_all=force_disable_all,
+                clean_mode_just_closed=clean_mode_just_closed,
+                axis_list=axis_list,
+            )
+            stop_chain = stop_chain or auto_stop_chain
 
         proc.last_operate_state = proc.plc_data.Operate
 
@@ -144,6 +65,116 @@ class MotionFrameByFramePlanning:
         moving_frame.HeartBeat = proc.plc_data.HeartBeat
         moving_frame.Operate = 0 if stop_chain else 0x02
         return moving_frame
+
+    def _build_auto_mode_enable_and_axes(self, proc, force_disable_all, clean_mode_just_closed, axis_list):
+        """自动模式逐设备规划；故障时通过关闭有效设备位进入安全返回。"""
+        enable_value = 0
+        stop_chain = False
+        effective_operate = 0 if force_disable_all else proc.plc_data.Operate
+
+        for sn in range(proc.num_devices):
+            machine_cfg = proc.machine_config.get(str(sn))
+            if not machine_cfg or machine_cfg.get("type", "") == "out_lift":
+                continue
+
+            runtime_cfg = proc.runtime_machine_config.get(sn, {})
+            machine_type = machine_cfg.get("type", "")
+            device_bit = sn + 1
+            device_operate_enabled = (effective_operate & (1 << device_bit)) != 0
+            last_device_operate = (proc.last_operate_state & (1 << device_bit)) != 0
+            device_just_closed = last_device_operate and not device_operate_enabled
+            should_return_safe = self._should_return_safe_before_idle(
+                device_operate_enabled=device_operate_enabled,
+                device_just_closed=device_just_closed,
+                clean_mode_just_closed=clean_mode_just_closed,
+                device_returning=proc.device_returning_to_origin[sn],
+            )
+
+            if not device_operate_enabled or should_return_safe:
+                axis_cmds, all_ready = self._build_inactive_device_axes(
+                    proc, sn, machine_cfg, runtime_cfg, machine_type, should_return_safe
+                )
+                proc.device_origin_complete[sn] = all_ready
+                device_enable = not all_ready
+            else:
+                axis_cmds, device_stop_chain = self._build_active_device_axes(
+                    proc, sn, machine_cfg, runtime_cfg, machine_type
+                )
+                stop_chain = stop_chain or device_stop_chain
+                device_enable = True
+
+            if axis_cmds:
+                apply_device_axes_to_list(proc.machine_config, sn, axis_cmds, axis_list)
+            if device_enable:
+                enable_value |= 1 << device_bit
+
+        if not force_disable_all:
+            enable_value |= 0x01
+        return enable_value, stop_chain
+
+    def _build_inactive_device_axes(self, proc, sn, machine_cfg, runtime_cfg, machine_type, should_return_safe):
+        """为关闭或正在安全返回的设备生成命令。"""
+        if machine_type == "xn_updown4":
+            self.xn_updown4_planner.reset_motion_state(sn)
+
+        if machine_type == "xn_updown2":
+            self.xn_updown2_planner.reset_motion_state(sn, preserve_safe_return=True)
+            axis_cmds, all_ready = self.xn_updown2_planner.request_safe_return(
+                machine_cfg, runtime_cfg, proc.plc_data
+            )
+            proc.device_returning_to_origin[sn] = not all_ready
+        elif machine_type == "out_2d_servo":
+            axis_cmds, all_ready = self.out_2d_servo_planner.build_zero_commands(
+                machine_cfg, runtime_cfg, proc.plc_data
+            )
+            proc.device_returning_to_origin[sn] = not all_ready
+        elif should_return_safe:
+            axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(
+                machine_cfg, runtime_cfg, proc.plc_data
+            )
+            proc.device_returning_to_origin[sn] = not all_ready
+        else:
+            axis_cmds = self.motion_to_target.hold_current_position(machine_cfg, proc.plc_data)
+            all_ready = proc.device_origin_complete.get(sn, False)
+
+        return axis_cmds, all_ready
+
+    def _build_active_device_axes(self, proc, sn, machine_cfg, runtime_cfg, machine_type):
+        """为已开启设备分发对应的自动运动规划器。"""
+        proc.device_returning_to_origin[sn] = False
+        proc.device_origin_complete[sn] = False
+
+        if machine_type == "xn_updown2":
+            axis_cmds = self.xn_updown2_planner.auto_xn_updown2_move(
+                machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
+            )
+            device_stop_chain = False
+        elif machine_type == "xn_updown4":
+            axis_cmds = self.xn_updown4_planner.auto_xn_updown4_move(
+                machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
+            )
+            device_stop_chain = False
+        elif machine_type == "out_2d_servo":
+            axis_cmds, device_stop_chain = self.out_2d_servo_planner.auto_out_2d_servo_move(
+                machine_cfg, runtime_cfg, proc.plc_data, proc.frame_queue_manager
+            )
+        elif machine_type == "out_fx":
+            axis_cmds, _, device_stop_chain = self.out_fx_planner.auto_out_fx_move(
+                machine_cfg=machine_cfg,
+                runtime_cfg=runtime_cfg,
+                plc_data=proc.plc_data,
+                frame_queue_manager=proc.frame_queue_manager,
+            )
+        else:
+            # 尚无自动轨迹的设备统一回安全位置。
+            axis_cmds, all_ready = self.motion_to_target.move_to_origin_safe(
+                machine_cfg, runtime_cfg, proc.plc_data
+            )
+            proc.device_returning_to_origin[sn] = not all_ready
+            proc.device_origin_complete[sn] = all_ready
+            device_stop_chain = False
+
+        return axis_cmds, device_stop_chain
 
     def _build_clean_mode_enable_and_axes(self, proc, clean_mode_ready: bool, axis_list: list) -> int:
         enable_value = 0x01 | self.cleaning_planner.CLEAN_MODE_BIT
@@ -175,6 +206,8 @@ class MotionFrameByFramePlanning:
     def _handle_clean_mode_device(self, proc, sn, machine_cfg, runtime_cfg, clean_mode_ready, axis_list, enable_value):
         if machine_cfg.get("type") == "xn_updown4":
             self.xn_updown4_planner.reset_motion_state(sn)
+        if machine_cfg.get("type") == "xn_updown2":
+            self.xn_updown2_planner.reset_motion_state(sn)
         if machine_cfg.get("type") == "out_2d_servo":
             axis_cmds, all_ready = self.out_2d_servo_planner.build_zero_commands(
                 machine_cfg, runtime_cfg, proc.plc_data
@@ -225,6 +258,18 @@ class MotionFrameByFramePlanning:
             device_operate_enabled = (proc.plc_data.Operate & (1 << device_bit)) != 0
             if machine_type == "xn_updown4":
                 self.xn_updown4_planner.reset_motion_state(sn)
+            if machine_type == "xn_updown2":
+                self.xn_updown2_planner.reset_motion_state(sn, preserve_safe_return=True)
+                axis_cmds, all_ready = self.xn_updown2_planner.request_safe_return(
+                    machine_cfg, runtime_cfg, proc.plc_data
+                )
+                proc.device_returning_to_origin[sn] = not all_ready
+                proc.device_origin_complete[sn] = all_ready
+                if axis_cmds:
+                    apply_device_axes_to_list(proc.machine_config, sn, axis_cmds, axis_list)
+                if not all_ready:
+                    enable_value |= 1 << device_bit
+                continue
 
             if machine_type == "out_2d_servo":
                 axis_cmds, all_ready = self.out_2d_servo_planner.build_zero_commands(

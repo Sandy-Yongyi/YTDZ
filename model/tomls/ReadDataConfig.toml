@@ -14,22 +14,22 @@
 # -----------------------------------------------------------------------------
 
 # 所有方向采用同一原点时的整体滤波范围
-combined_x_min = 1150
-combined_x_max = 2500
-combined_y_min = 1100
-combined_y_max = 3600
+combined_x_min = 1030
+combined_x_max = 2450
+combined_y_min = 1060
+combined_y_max = 3000
 
 # 左侧激光滤波范围
-left_x_min = 1150
-left_x_max = 2500
-left_y_min = 1100
-left_y_max = 3600
+left_x_min = 1030
+left_x_max = 1860
+left_y_min = 1060
+left_y_max = 3000
 
 # 右侧激光滤波范围
-right_x_min = 1150
-right_x_max = 2500
-right_y_min = 1100
-right_y_max = 3600
+right_x_min = 1080
+right_x_max = 1880
+right_y_min = 1060
+right_y_max = 3000
 
 # 左上侧激光滤波范围
 left_upper_x_min = -700

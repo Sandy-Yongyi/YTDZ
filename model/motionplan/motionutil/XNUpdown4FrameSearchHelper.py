@@ -97,9 +97,9 @@ class XNUpdown4FrameSearchHelper:
         down_y_values = [int(getattr(row, "H_Axis", 0) or 0) for row in all_rows if 0 < int(getattr(row, "H_Axis", 0) or 0) <= down_boundary]
         complete = bool(up_y_values and down_y_values and overall_x_min is not None)
         return XNUpdown4StructureGeometry(has_data=True, complete=complete, overall_x_min=overall_x_min, yup=yup, ydown=ydown, ymiddle=ymiddle, up_boundary=up_boundary,
-                                         down_boundary=down_boundary, up_y_min=min(up_y_values) if up_y_values else None, up_y_max=max(up_y_values) if up_y_values else None,
-                                         down_y_min=min(down_y_values) if down_y_values else None, down_y_max=max(down_y_values) if down_y_values else None,
-                                         valid_frame_count=valid_frame_count, required_frame_count=required_frame_count)
+                                          down_boundary=down_boundary, up_y_min=min(up_y_values) if up_y_values else None, up_y_max=max(up_y_values) if up_y_values else None,
+                                          down_y_min=min(down_y_values) if down_y_values else None, down_y_max=max(down_y_values) if down_y_values else None,
+                                          valid_frame_count=valid_frame_count, required_frame_count=required_frame_count)
 
     def collect_region(self, frames, window, y_min=None, y_max=None):
         if window is None:
@@ -122,7 +122,7 @@ class XNUpdown4FrameSearchHelper:
                 if x_max != 0:
                     x_max_values.append(x_max)
         return XNUpdown4RegionGeometry(y_min=min(y_values) if y_values else None, y_max=max(y_values) if y_values else None,
-                                      x_min=min(x_min_values) if x_min_values else None, x_max=max(x_max_values) if x_max_values else None)
+                                       x_min=min(x_min_values) if x_min_values else None, x_max=max(x_max_values) if x_max_values else None)
 
     def has_data_in_y_band(self, frames, window, y_min, y_max):
         if window is None:

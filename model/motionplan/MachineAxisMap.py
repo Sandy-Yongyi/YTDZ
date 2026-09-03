@@ -26,6 +26,13 @@ AXIS_LIMIT_KEY: dict[str, dict[str, int]] = {
     "out_2d_servo": {"y": 0, "x": 1},
 }
 
+XN_UPDOWN2_MAX_LIMIT_INDEX = {
+    "y1": 0,
+    "x1": 1,
+    "y2": 2,
+    "x2": 3,
+}
+
 
 def get_axis_config_index(machine_type: str, axis_name: str) -> int | None:
     """获取轴在 max_limit_speed / min_limit_pos / max_limit_pos 中的索引。"""
@@ -44,8 +51,11 @@ def get_axis_config_index(machine_type: str, axis_name: str) -> int | None:
 def get_axis_config_value(machine_cfg: dict, axis_name: str, config_key: str, default: int = 0) -> int:
     """按设备通用轴定义读取配置值，如 safe_pos / max_limit_speed / min_limit_pos / max_limit_pos。"""
     machine_type = machine_cfg.get("type", "")
-    idx = get_axis_config_index(machine_type, axis_name)
     values = machine_cfg.get(config_key, [])
+    idx = get_axis_config_index(machine_type, axis_name)
+    if machine_type == "xn_updown2" and config_key == "max_limit_pos" and isinstance(values, (list, tuple)) and len(values) >= 4:
+        # 顶底两组只对最大位置限位使用独立四轴配置；两元素旧配置仍走通用 Y/X 索引。
+        idx = XN_UPDOWN2_MAX_LIMIT_INDEX.get(axis_name, idx)
     if idx is not None and isinstance(values, (list, tuple)) and idx < len(values):
         return int(values[idx] or 0)
     return default
