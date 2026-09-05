@@ -76,7 +76,7 @@ class FrameStateResult:
 
 
 class MotionOutFxFramePlanning:
-    """外侧仿形自动喷涂规划。"""
+    """按帧模式下外侧仿形自动喷涂规划。"""
 
     FRAME_CONFIG_DEFAULTS = {
         "stage_detect_frame_count": 8,
@@ -633,7 +633,7 @@ class MotionOutFxFramePlanning:
         x_recip_speed = int(runtime_cfg.get("x_recip_speed", machine_cfg.get("x_recip_speed", 0)) or 0)
 
         if not state.x_initialized:
-            if axis_positions and all(abs(position - target_min) <= self.spray_pos_tolerance for position in axis_positions):
+            if axis_positions and all(abs(position - target_min) <= self.spray_pos_tolerance for position in axis_positions):  # type: ignore
                 state.x_initialized = True
                 state.x_phase = "to_max"
                 target = target_max
@@ -644,7 +644,7 @@ class MotionOutFxFramePlanning:
                 speed = x_pos_speed
         else:
             target = target_max if state.x_phase == "to_max" else target_min
-            if axis_positions and all(abs(position - target) <= self.spray_pos_tolerance for position in axis_positions):
+            if axis_positions and all(abs(position - target) <= self.spray_pos_tolerance for position in axis_positions):  # type: ignore
                 if state.x_phase == "to_max":
                     state.x_phase = "to_min"
                     target = target_min

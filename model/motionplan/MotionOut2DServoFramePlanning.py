@@ -32,7 +32,7 @@ class Servo2DWindowResult:
 
 
 class MotionOut2DServoFramePlanning:
-    """伺服二维按帧点云范围报文规划。"""
+    """伺服二维按帧点云范围报文规划。（底座是伺服二维，需要返回ymax,ymin，X运动目标位置实时计算）"""
 
     def __init__(self, motion_to_target=None, read_data_cfg=None):
         config_dir = os.path.join(os.getcwd(), "model", "tomls")

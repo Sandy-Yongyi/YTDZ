@@ -47,7 +47,7 @@ class OutFxCompleteStateResult:
 
 
 class MotionOutFxCompleteWorkpiecePlanning:
-    """完整工件模式下的仿形升降机状态机。"""
+    """按完整工件模式下外侧仿形自动喷涂规划。"""
 
     CONFIG_DEFAULTS = {
         "frame_x_slow_in_out_enabled": 0,

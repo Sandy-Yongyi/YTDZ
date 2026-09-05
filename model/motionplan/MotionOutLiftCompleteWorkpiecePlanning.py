@@ -5,6 +5,7 @@ from model.utils.TomlLoader import TomlLoader
 
 
 class MotionOutLiftCompleteWorkpiecePlanning:
+    '''按完整工件模式下外侧二维设备规划。（变频二维，只需要返回xmin,ymax,ymin）'''
     def __init__(self):
         self.spray_cfg = TomlLoader.load(os.getcwd() + "\\model\\tomls\\sprayconfig.toml")
         self.process_cfg = TomlLoader.load(os.getcwd() + "\\model\\tomls\\ProcessConfig.toml")

@@ -29,7 +29,7 @@ class XNUpdown4DeviceState:
 
 
 class MotionXNUpdown4FramePlanning:
-    """旧四枪顶底设备（xn_updown4）按帧运动规划。"""
+    """四枪顶底设备（xn_updown4）按帧运动规划。最顶部Y固定，其余三枪Y根据喷涂区域动态规划。X轴在喷涂区域内往复运动。"""
 
     def __init__(self, read_data_cfg=None, spray_cfg=None, motion_to_target=None):
         config_dir = os.path.join(os.getcwd(), "model", "tomls")
