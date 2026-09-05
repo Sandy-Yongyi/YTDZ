@@ -161,6 +161,10 @@ class MainFrameController(MainFrame):
 
         print("now start main.exe version is 2026/8/27 PM")
         print("启动系统...")
+        if is_complete_workpiece_mode(self.strategy_name):
+            print("启动系统模式错误, 请启动按帧采集模式")
+            return
+
         self.running = True
         self._process_fault_handled = False
         self.process_heartbeats = {}
@@ -181,7 +185,7 @@ class MainFrameController(MainFrame):
 
         if self.control_type == 1:
             # --------------------------调试数据处理----------------------------------------
-            data_paths = r"D:\draw_points\JRQC"
+            data_paths = r"D:\draw_points\1"
             data_name = "20260716_102537.txt"  # 陕西中集
 
             # 创建进程通信队列
@@ -209,21 +213,22 @@ class MainFrameController(MainFrame):
             logger.info(f"process_worker process ID: {process_worker.pid}")
 
             if is_complete_workpiece_mode(strategy_name):
-                from control.DataProcessingProcess import DataProcessingProcess
-                machine_data_queue = multiprocessing.Queue()
-                data_processing_heartbeat = self._new_process_heartbeat()
-                data_processing = DataProcessingProcess(raw_data_queue=raw_data_queue,
-                                                        machine_data_queue=machine_data_queue,
-                                                        viz_queue=viz_queue,
-                                                        config_dir=self.toml_path,
-                                                        heartbeat=data_processing_heartbeat,
-                                                        heartbeat_interval_s=self.process_heartbeat_interval_s)
-                data_processing.daemon = True
-                data_processing.stdout = SubprocessRedirect(self.log_queue)
-                data_processing.stderr = SubprocessRedirect(self.log_queue, is_stderr=True)
-                data_processing.start()
-                self._register_process(data_processing, data_processing_heartbeat)
-                logger.info(f"start data_processing process ID: {data_processing.pid}")
+                pass
+                # from control.DataProcessingProcess import DataProcessingProcess
+                # machine_data_queue = multiprocessing.Queue()
+                # data_processing_heartbeat = self._new_process_heartbeat()
+                # data_processing = DataProcessingProcess(raw_data_queue=raw_data_queue,
+                #                                         machine_data_queue=machine_data_queue,
+                #                                         viz_queue=viz_queue,
+                #                                         config_dir=self.toml_path,
+                #                                         heartbeat=data_processing_heartbeat,
+                #                                         heartbeat_interval_s=self.process_heartbeat_interval_s)
+                # data_processing.daemon = True
+                # data_processing.stdout = SubprocessRedirect(self.log_queue)
+                # data_processing.stderr = SubprocessRedirect(self.log_queue, is_stderr=True)
+                # data_processing.start()
+                # self._register_process(data_processing, data_processing_heartbeat)
+                # logger.info(f"start data_processing process ID: {data_processing.pid}")
 
             # 启动PLC通信进程
             plc_heartbeat = self._new_process_heartbeat()
@@ -279,23 +284,24 @@ class MainFrameController(MainFrame):
 
             machine_data_queue = None
             if is_complete_workpiece_mode(strategy_name):
-                from control.DataProcessingProcess import DataProcessingProcess
-                machine_data_queue = multiprocessing.Queue()
-                # 启动数据处理进程
-                data_processing_heartbeat = self._new_process_heartbeat()
-                data_processing = DataProcessingProcess(raw_data_queue=raw_data_queue,
-                                                        machine_data_queue=machine_data_queue,
-                                                        viz_queue=viz_queue,
-                                                        config_dir=self.toml_path,
-                                                        heartbeat=data_processing_heartbeat,
-                                                        heartbeat_interval_s=self.process_heartbeat_interval_s)
-                data_processing.daemon = True
-                # 重定向数据处理进程输出
-                data_processing.stdout = SubprocessRedirect(self.log_queue)
-                data_processing.stderr = SubprocessRedirect(self.log_queue, is_stderr=True)
-                data_processing.start()
-                self._register_process(data_processing, data_processing_heartbeat)
-                logger.info(f"start data_processing process ID: {data_processing.pid}")
+                pass
+                # from control.DataProcessingProcess import DataProcessingProcess
+                # machine_data_queue = multiprocessing.Queue()
+                # # 启动数据处理进程
+                # data_processing_heartbeat = self._new_process_heartbeat()
+                # data_processing = DataProcessingProcess(raw_data_queue=raw_data_queue,
+                #                                         machine_data_queue=machine_data_queue,
+                #                                         viz_queue=viz_queue,
+                #                                         config_dir=self.toml_path,
+                #                                         heartbeat=data_processing_heartbeat,
+                #                                         heartbeat_interval_s=self.process_heartbeat_interval_s)
+                # data_processing.daemon = True
+                # # 重定向数据处理进程输出
+                # data_processing.stdout = SubprocessRedirect(self.log_queue)
+                # data_processing.stderr = SubprocessRedirect(self.log_queue, is_stderr=True)
+                # data_processing.start()
+                # self._register_process(data_processing, data_processing_heartbeat)
+                # logger.info(f"start data_processing process ID: {data_processing.pid}")
 
             # 使用工厂方法创建 PLC 通信进程
             t2 = time.perf_counter()

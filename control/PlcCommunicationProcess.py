@@ -1,8 +1,8 @@
 ﻿import os
 import sys
 import time
-import copy
-import math
+# import copy
+# import math
 import multiprocessing
 from typing import Any, cast
 from model.utils.LoggerUtil import check_and_rotate_log, logger
@@ -10,13 +10,13 @@ from model.plc.PlcCommon import PlcManager
 from model.utils.TomlLoader import TomlLoader
 from model.plc.MovingFrameData import SendMovingFrameData
 from model.utils.FrameQueueManager import FrameQueueManager
-from model.formats.complete_workpiece.BlockDataFormat import BlockData
+# from model.formats.complete_workpiece.BlockDataFormat import BlockData
 from model.formats.frame_by_frame.AxisFrameDataFormat import AxisFrameData
-from model.dataprocess.complete_workpiece.GunDistributor import GunDistributor
+# from model.dataprocess.complete_workpiece.GunDistributor import GunDistributor
 from model.motionplan.MotionFrameByFramePlanning import MotionFrameByFramePlanning
 from model.utils.StrategyUtil import is_complete_workpiece_mode, validate_strategy_name
 from model.utils.MachineConfigUtil import MACHINE_OFFSET_KEYS, get_machine_config_path, normalize_machine_config_offsets, normalize_machine_offset_values
-from model.motionplan.MotionCompleteWorkpiecePlanning import MotionCompleteWorkpiecePlanning
+# from model.motionplan.MotionCompleteWorkpiecePlanning import MotionCompleteWorkpiecePlanning
 from model.utils.ProcessHeartbeat import ProcessHeartbeat
 
 
@@ -56,9 +56,9 @@ class PlcCommunicationProcess(multiprocessing.Process):
         self.runtime_spray_config = cast(dict[str, Any], {})
         self.mode_config = cast(dict[str, Any], {})
         self.frame_by_frame_motion_planner = cast(MotionFrameByFramePlanning, None)
-        self.complete_workpiece_planner = cast(MotionCompleteWorkpiecePlanning, None)
+        # self.complete_workpiece_planner = cast(MotionCompleteWorkpiecePlanning, None)
         self.frame_queue_manager = cast(FrameQueueManager, None)
-        self.gun_distributor = cast(GunDistributor, None)
+        # self.gun_distributor = cast(GunDistributor, None)
 
         self.max_fifo = 0
         self.max_retries = 3
@@ -200,8 +200,8 @@ class PlcCommunicationProcess(multiprocessing.Process):
         self.runtime_spray_config = TomlLoader.load(self.spray_config_path)
         self.mode_config = TomlLoader.load(self.mode_config_path)
         self.frame_by_frame_motion_planner = MotionFrameByFramePlanning()
-        self.complete_workpiece_planner = MotionCompleteWorkpiecePlanning()
-        self.gun_distributor = GunDistributor(machine_cfg=self.machine_config)
+        # self.complete_workpiece_planner = MotionCompleteWorkpiecePlanning()
+        # self.gun_distributor = GunDistributor(machine_cfg=self.machine_config)
         spray_mode = int(self.mode_config.get("spray_mode", 0) or 0)
         mode_text = "手动模式" if spray_mode == 1 else "自动模式"
         logger.info(f"PLC runtime spray mode: {mode_text} (spray_mode={spray_mode})")
@@ -313,8 +313,9 @@ class PlcCommunicationProcess(multiprocessing.Process):
             if not self._update_plc_data():
                 continue
             if is_complete_workpiece_mode(self.strategy_name):
-                self._process_workpiece_data()
-                self._sync_complete_workpiece_positions()
+                pass
+                # self._process_workpiece_data()
+                # self._sync_complete_workpiece_positions()
             else:
                 self.current_cycle_raw_shift_steps = 0
                 self._process_frame_data()
@@ -458,40 +459,40 @@ class PlcCommunicationProcess(multiprocessing.Process):
         except Exception as e:
             logger.error(f"Error processing raw data from queue: {e}")
 
-    def _process_workpiece_data(self):
-        """complete_workpiece 模式处理整件数据队列。"""
-        source_queue = self.machine_data_queue or self.raw_data_queue
-        try:
-            while not source_queue.empty():
-                machine_data = source_queue.get_nowait()
-                if not isinstance(machine_data, dict):
-                    continue
+    # def _process_workpiece_data(self):
+    #     """complete_workpiece 模式处理整件数据队列。"""
+    #     source_queue = self.machine_data_queue or self.raw_data_queue
+    #     try:
+    #         while not source_queue.empty():
+    #             machine_data = source_queue.get_nowait()
+    #             if not isinstance(machine_data, dict):
+    #                 continue
 
-                if "lidar_status" in machine_data:
-                    self._update_lidar_status(int(machine_data.get("lidar_status", 0) or 0))
-                if self._should_skip_raw_packet():
-                    continue
+    #             if "lidar_status" in machine_data:
+    #                 self._update_lidar_status(int(machine_data.get("lidar_status", 0) or 0))
+    #             if self._should_skip_raw_packet():
+    #                 continue
 
-                for direction, payload in machine_data.items():
-                    if direction == "lidar_status":
-                        continue
-                    if direction not in self.frame_queue_manager.queues:
-                        continue
-                    if not isinstance(payload, dict):
-                        continue
+    #             for direction, payload in machine_data.items():
+    #                 if direction == "lidar_status":
+    #                     continue
+    #                 if direction not in self.frame_queue_manager.queues:
+    #                     continue
+    #                 if not isinstance(payload, dict):
+    #                     continue
 
-                    stop_pulse = payload.get("stop_pulse")
-                    # stop_pulse = self.plc_data.ChainPulse  # TODO ：调用数据调试时使用
-                    base_block_data = payload.get("data")
-                    for sn in self.frame_queue_manager.queues[direction].keys():
-                        block_data = self._build_machine_workpiece(base_block_data, sn)
-                        frame_item = {"stop_pulse": stop_pulse, "data": block_data}
-                        logger.info(f"Push complete workpiece data to queue: direction={direction}, sn={sn}, stop_pulse={stop_pulse}, block_data={block_data}")
-                        success, insert_index, shifted = self.frame_queue_manager.push_workpiece(direction=direction, sn=sn, data=frame_item)
-                        if success and insert_index is not None:
-                            self._update_workpiece_tracking_after_push(direction, sn, insert_index, shifted)
-        except Exception as e:
-            logger.error(f"Error processing machine queue: {str(e)}")
+    #                 stop_pulse = payload.get("stop_pulse")
+    #                 # stop_pulse = self.plc_data.ChainPulse  # TODO ：调用数据调试时使用
+    #                 base_block_data = payload.get("data")
+    #                 for sn in self.frame_queue_manager.queues[direction].keys():
+    #                     block_data = self._build_machine_workpiece(base_block_data, sn)
+    #                     frame_item = {"stop_pulse": stop_pulse, "data": block_data}
+    #                     logger.info(f"Push complete workpiece data to queue: direction={direction}, sn={sn}, stop_pulse={stop_pulse}, block_data={block_data}")
+    #                     success, insert_index, shifted = self.frame_queue_manager.push_workpiece(direction=direction, sn=sn, data=frame_item)
+    #                     if success and insert_index is not None:
+    #                         self._update_workpiece_tracking_after_push(direction, sn, insert_index, shifted)
+    #     except Exception as e:
+    #         logger.error(f"Error processing machine queue: {str(e)}")
 
     def _update_workpiece_tracking_after_push(self, direction: str, sn: int, insert_index: int, shifted: bool):
         """工件队列入队后同步位置跟踪索引，并让新工件首次从自身stop_pulse开始累计。"""
@@ -509,16 +510,16 @@ class PlcCommunicationProcess(multiprocessing.Process):
         sn_residual_map.pop(int(insert_index), None)
         direction_residual_map[sn] = sn_residual_map
 
-    def _build_machine_workpiece(self, block_data, sn: int):
-        if not isinstance(block_data, BlockData):
-            return block_data
+    # def _build_machine_workpiece(self, block_data, sn: int):
+    #     if not isinstance(block_data, BlockData):
+    #         return block_data
 
-        machine_cfg = self.machine_config.get(str(sn))
-        if not machine_cfg or self.gun_distributor is None:
-            return copy.deepcopy(block_data)
+    #     machine_cfg = self.machine_config.get(str(sn))
+    #     if not machine_cfg or self.gun_distributor is None:
+    #         return copy.deepcopy(block_data)
 
-        machine_block = copy.deepcopy(block_data)
-        return self.gun_distributor.distribute_for_machine(blockdata=machine_block, machine_cfg=machine_cfg, machine_id=int(sn))
+    #     machine_block = copy.deepcopy(block_data)
+    #     return self.gun_distributor.distribute_for_machine(blockdata=machine_block, machine_cfg=machine_cfg, machine_id=int(sn))
 
     def _handle_frame_packet_received(self, fifo_data: dict, repeat_count: int):
         self.current_cycle_raw_shift_steps += repeat_count
@@ -576,55 +577,55 @@ class PlcCommunicationProcess(multiprocessing.Process):
         self.current_cycle_raw_shift_steps = 0
         self._update_raw_data_watchdog()
 
-    def _sync_complete_workpiece_positions(self):
-        """完整工件模式下，按链条当前位置持续更新队列内工件的 `fifo_frame_pos`。"""
-        if not hasattr(self, "plc_data") or self.plc_data is None:
-            return
+    # def _sync_complete_workpiece_positions(self):
+    #     """完整工件模式下，按链条当前位置持续更新队列内工件的 `fifo_frame_pos`。"""
+    #     if not hasattr(self, "plc_data") or self.plc_data is None:
+    #         return
 
-        current_pulse = float(getattr(self.plc_data, "ChainPulse", 0) or 0)
-        current_mm = current_pulse / float(self.pulse_to_mm or 1)
-        step_mm = float(self.workpiece_fifo_step_mm or 5)
-        if step_mm <= 0:
-            step_mm = 5.0
+    #     current_pulse = float(getattr(self.plc_data, "ChainPulse", 0) or 0)
+    #     current_mm = current_pulse / float(self.pulse_to_mm or 1)
+    #     step_mm = float(self.workpiece_fifo_step_mm or 5)
+    #     if step_mm <= 0:
+    #         step_mm = 5.0
 
-        for direction, sn_queues in self.frame_queue_manager.queues.items():
-            direction_mm_map = self.last_workpiece_chain_mm.setdefault(direction, {})
-            direction_residual_map = self.last_workpiece_chain_mm_residual.setdefault(direction, {})
-            for sn, queue_data in sn_queues.items():
-                prev_mm_map = direction_mm_map.get(sn, {})
-                prev_residual_map = direction_residual_map.get(sn, {})
-                new_mm_map = {}
-                new_residual_map = {}
+    #     for direction, sn_queues in self.frame_queue_manager.queues.items():
+    #         direction_mm_map = self.last_workpiece_chain_mm.setdefault(direction, {})
+    #         direction_residual_map = self.last_workpiece_chain_mm_residual.setdefault(direction, {})
+    #         for sn, queue_data in sn_queues.items():
+    #             prev_mm_map = direction_mm_map.get(sn, {})
+    #             prev_residual_map = direction_residual_map.get(sn, {})
+    #             new_mm_map = {}
+    #             new_residual_map = {}
 
-                for frame_idx, frame_item in enumerate(queue_data):
-                    if not isinstance(frame_item, dict):
-                        continue
+    #             for frame_idx, frame_item in enumerate(queue_data):
+    #                 if not isinstance(frame_item, dict):
+    #                     continue
 
-                    block_data = frame_item.get("data")
-                    stop_pulse = float(frame_item.get("stop_pulse", 0) or 0)
-                    if not isinstance(block_data, BlockData):
-                        continue
+    #                 block_data = frame_item.get("data")
+    #                 stop_pulse = float(frame_item.get("stop_pulse", 0) or 0)
+    #                 if not isinstance(block_data, BlockData):
+    #                     continue
 
-                    prev_mm = prev_mm_map.get(frame_idx)
-                    if prev_mm is None:
-                        stop_mm = stop_pulse / float(self.pulse_to_mm or 1)
-                        delta_mm = self._calc_delta_mm_with_wrap(current_mm, stop_mm)
-                    else:
-                        delta_mm = self._calc_delta_mm_with_wrap(current_mm, prev_mm)
+    #                 prev_mm = prev_mm_map.get(frame_idx)
+    #                 if prev_mm is None:
+    #                     stop_mm = stop_pulse / float(self.pulse_to_mm or 1)
+    #                     delta_mm = self._calc_delta_mm_with_wrap(current_mm, stop_mm)
+    #                 else:
+    #                     delta_mm = self._calc_delta_mm_with_wrap(current_mm, prev_mm)
 
-                    residual_mm = float(prev_residual_map.get(frame_idx, 0.0) or 0.0)
-                    accumulated_mm = residual_mm + float(delta_mm)
-                    step_count = int(math.floor(abs(accumulated_mm) / step_mm))
-                    applied_mm = 0
-                    if step_count > 0:
-                        applied_mm = int(math.copysign(step_count * step_mm, accumulated_mm))
+    #                 residual_mm = float(prev_residual_map.get(frame_idx, 0.0) or 0.0)
+    #                 accumulated_mm = residual_mm + float(delta_mm)
+    #                 step_count = int(math.floor(abs(accumulated_mm) / step_mm))
+    #                 applied_mm = 0
+    #                 if step_count > 0:
+    #                     applied_mm = int(math.copysign(step_count * step_mm, accumulated_mm))
 
-                    block_data.fifo_frame_pos = int((block_data.fifo_frame_pos or 0) + applied_mm)
-                    new_mm_map[frame_idx] = current_mm
-                    new_residual_map[frame_idx] = accumulated_mm - applied_mm
+    #                 block_data.fifo_frame_pos = int((block_data.fifo_frame_pos or 0) + applied_mm)
+    #                 new_mm_map[frame_idx] = current_mm
+    #                 new_residual_map[frame_idx] = accumulated_mm - applied_mm
 
-                direction_mm_map[sn] = new_mm_map
-                direction_residual_map[sn] = new_residual_map
+    #             direction_mm_map[sn] = new_mm_map
+    #             direction_residual_map[sn] = new_residual_map
 
     def _calc_delta_mm_with_wrap(self, current_mm: float, prev_mm: float) -> float:
         delta = float(current_mm) - float(prev_mm)
@@ -773,7 +774,8 @@ class PlcCommunicationProcess(multiprocessing.Process):
 
     def _axis_to_moving_frame(self) -> SendMovingFrameData:
         if is_complete_workpiece_mode(self.strategy_name):
-            return self.complete_workpiece_planner.build_moving_frame(self)
+            pass
+            # return self.complete_workpiece_planner.build_moving_frame(self)
         return self.frame_by_frame_motion_planner.build_moving_frame(self)
 
     def after_spray_complete(self, direction: str, sn: int):
