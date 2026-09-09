@@ -51,6 +51,9 @@ class MotionFrameByFramePlanning:
         moving_frame.Gun_Cont2 = 0
         moving_frame.HeartBeat = proc.plc_data.HeartBeat
         moving_frame.Operate = 0 if stop_chain else 0x02
+        # bit15 反映全部帧队列中有无非零点云，与设备使能和停链状态无关。
+        if self.cleaning_planner.has_any_frame_data(proc.frame_queue_manager):
+            moving_frame.Operate |= 1 << 15
         return moving_frame
 
     def _build_auto_mode_enable_and_axes(self, proc, force_disable_all, clean_mode_just_closed, axis_list):

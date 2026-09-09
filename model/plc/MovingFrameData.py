@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Annotated, ClassVar
 
-from model.plc.PlcFrame import Int16, Int32, PlcFrame, Repeat
+from model.plc.PlcFrame import Int16, Int32, UInt16, PlcFrame, Repeat
 
 
 # 字节序配置: '>' = 大端序 (Big-Endian), '<' = 小端序 (Little-Endian)
@@ -36,7 +36,7 @@ class SendMovingFrameData(PlcFrame):
     Gun_Cont1: Annotated[int, Int32()] = 0       # 开枪控制1（保留）
     Gun_Cont2: Annotated[int, Int16()] = 0       # 开枪控制2（保留）
     HeartBeat: Annotated[int, Int16()] = 0       # 心跳
-    Operate: Annotated[int, Int16()] = 0         # 远程操作位（bit0不用，bit1控制链条：0停止，1运动）
+    Operate: Annotated[int, UInt16()] = 0        # 远程操作位（bit0不用，bit1控制链条：0停止，1运动，bit15有无工件）
     AxisList: Annotated[list[AxisData], Repeat(AXIS_LIST_COUNT)] = field(default_factory=create_axis_list)
 
 
