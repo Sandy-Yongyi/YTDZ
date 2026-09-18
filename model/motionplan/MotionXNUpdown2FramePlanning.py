@@ -212,6 +212,7 @@ class MotionXNUpdown2FramePlanning:
         x_pos_speed = self._get_runtime_int(machine_cfg, runtime_cfg, "x_pos_speed", 300)
         x_recip_speed = self._get_runtime_int(machine_cfg, runtime_cfg, "x_recip_speed", 100)
         y_pos_speed = self._get_runtime_int(machine_cfg, runtime_cfg, "y_pos_speed", 100)
+        spray_status = 1 if self._is_chain_running(plc_data) else 0
         target = state.target
 
         if state.phase == "positioning":
@@ -227,7 +228,7 @@ class MotionXNUpdown2FramePlanning:
         if state.phase == "retract_for_y":
             axis_cmds = {
                 y_name: self._build_axis(machine_cfg, y_name, current_y, 0, 0),
-                x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_recip_speed, 1),
+                x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_recip_speed, spray_status),
             }
             if self._has_arrived(current_x, target.x_min_target):
                 state.phase = "reposition_y"
@@ -254,7 +255,7 @@ class MotionXNUpdown2FramePlanning:
 
         x_target = target.x_max_target if state.x_direction == "to_max" else target.x_min_target
         return {
-            x_name: self._build_axis(machine_cfg, x_name, x_target, x_recip_speed, 1),
+            x_name: self._build_axis(machine_cfg, x_name, x_target, x_recip_speed, spray_status),
             y_name: self._build_axis(machine_cfg, y_name, target.y_target, y_pos_speed, 0),
         }, False
 
@@ -343,6 +344,10 @@ class MotionXNUpdown2FramePlanning:
 
     def _has_arrived(self, current, target):
         return abs(int(current) - int(target)) <= self.tolerance
+
+    @staticmethod
+    def _is_chain_running(plc_data):
+        return getattr(plc_data, "ChainStatus", "stopped") == "moving_forward"
 
     @staticmethod
     def _get_runtime_int(machine_cfg, runtime_cfg, key, default):

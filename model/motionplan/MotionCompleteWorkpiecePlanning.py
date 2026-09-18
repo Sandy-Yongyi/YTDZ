@@ -174,6 +174,9 @@ class MotionCompleteWorkpiecePlanning:
         moving_frame.Gun_Cont2 = 0
         moving_frame.HeartBeat = proc.plc_data.HeartBeat
         moving_frame.Operate = 0 if stop_chain else 0x02
+        # bit15 反映完整工件队列中有无工件，与设备使能和停链状态无关。
+        if self.cleaning_planner.has_any_workpiece(proc.frame_queue_manager):
+            moving_frame.Operate |= 1 << 15
         # logger.info(f"生成 SendMovingFrameData: Enable={moving_frame.Enable:032b}, Operate={moving_frame.Operate}")
         return moving_frame
 
