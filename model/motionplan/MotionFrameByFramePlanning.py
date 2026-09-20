@@ -1,9 +1,10 @@
-from model.motionplan.MachineAxisMap import apply_device_axes_to_list
+from model.motionplan.MachineAxisMap import apply_device_axes_to_list, get_axis_map
 from model.motionplan.MotionCleaningPlanning import MotionCleaningPlanning
 from model.motionplan.MotionOut2DServoFramePlanning import MotionOut2DServoFramePlanning
 from model.motionplan.MotionToTarget import MotionToTarget
 from model.motionplan.MotionXNUpdown2FramePlanning import MotionXNUpdown2FramePlanning
-from model.plc.MovingFrameData import SendMovingFrameData, create_axis_list
+from model.plc.MovingFrameData import AxisData, SendMovingFrameData, create_axis_list
+from model.utils.LoggerUtil import logger
 
 
 class MotionFrameByFramePlanning:
@@ -14,6 +15,7 @@ class MotionFrameByFramePlanning:
         self.out_2d_servo_planner = MotionOut2DServoFramePlanning(self.motion_to_target)
         self.xn_updown2_planner = MotionXNUpdown2FramePlanning()
         self.cleaning_planner = MotionCleaningPlanning()
+        self._last_safety_fault_mask = 0
 
     def build_moving_frame(self, proc) -> SendMovingFrameData:
         moving_frame = SendMovingFrameData()
@@ -22,26 +24,38 @@ class MotionFrameByFramePlanning:
         servo_alarm = proc.plc_data.Status != 1
         lidar_abnormal = int(getattr(proc, "lidar_status", 0) or 0) in (1, 2, 3)
         raw_data_timeout = bool(getattr(proc, "raw_data_timeout_active", False))
-        force_disable_all = (not plc_enable) or servo_alarm or lidar_abnormal or raw_data_timeout
+        safety_fault = servo_alarm or lidar_abnormal or raw_data_timeout
+        safety_fault_mask = self._build_safety_fault_mask(servo_alarm, lidar_abnormal, raw_data_timeout)
         stop_chain = lidar_abnormal or raw_data_timeout
 
-        clean_mode_enabled, clean_mode_ready = self._resolve_clean_mode_state(proc, force_disable_all)
-        clean_mode_just_closed = self._is_clean_mode_just_closed(proc, clean_mode_enabled)
-        if clean_mode_enabled and clean_mode_ready:
-            stop_chain = True
-
-        if clean_mode_enabled:
-            enable_value = self._build_clean_mode_enable_and_axes(proc, clean_mode_ready, axis_list)
-        elif self._is_manual_mode_enabled(proc) and not force_disable_all:
-            enable_value = self._build_manual_mode_enable_and_axes(proc, axis_list)
+        if not plc_enable:
+            axis_list = self._build_hard_stop_axis_list(proc)
+            enable_value = 0
+            self._last_safety_fault_mask = 0
+            if (int(getattr(proc, "last_operate_state", 0) or 0) & 0x01) != 0:
+                logger.info("PLC总使能关闭：所有设备硬停并保持当前位置")
         else:
-            enable_value, auto_stop_chain = self._build_auto_mode_enable_and_axes(
-                proc=proc,
-                force_disable_all=force_disable_all,
-                clean_mode_just_closed=clean_mode_just_closed,
-                axis_list=axis_list,
-            )
-            stop_chain = stop_chain or auto_stop_chain
+            if safety_fault and safety_fault_mask != self._last_safety_fault_mask:
+                print(f"{self._format_safety_faults(servo_alarm, lidar_abnormal, raw_data_timeout)}：所有设备安全回零")
+            self._last_safety_fault_mask = safety_fault_mask
+
+            clean_mode_enabled, clean_mode_ready = self._resolve_clean_mode_state(proc, safety_fault)
+            clean_mode_just_closed = self._is_clean_mode_just_closed(proc, clean_mode_enabled)
+            if clean_mode_enabled and clean_mode_ready:
+                stop_chain = True
+
+            if clean_mode_enabled:
+                enable_value = self._build_clean_mode_enable_and_axes(proc, clean_mode_ready, axis_list)
+            elif self._is_manual_mode_enabled(proc) and not safety_fault:
+                enable_value = self._build_manual_mode_enable_and_axes(proc, axis_list)
+            else:
+                enable_value, auto_stop_chain = self._build_auto_mode_enable_and_axes(
+                    proc=proc,
+                    force_return_safe=safety_fault,
+                    clean_mode_just_closed=clean_mode_just_closed,
+                    axis_list=axis_list,
+                )
+                stop_chain = stop_chain or auto_stop_chain
 
         proc.last_operate_state = proc.plc_data.Operate
 
@@ -56,11 +70,11 @@ class MotionFrameByFramePlanning:
             moving_frame.Operate |= 1 << 15
         return moving_frame
 
-    def _build_auto_mode_enable_and_axes(self, proc, force_disable_all, clean_mode_just_closed, axis_list):
+    def _build_auto_mode_enable_and_axes(self, proc, force_return_safe, clean_mode_just_closed, axis_list):
         """自动模式逐设备规划；故障时通过关闭有效设备位进入安全返回。"""
         enable_value = 0
         stop_chain = False
-        effective_operate = 0 if force_disable_all else proc.plc_data.Operate
+        effective_operate = 0 if force_return_safe else proc.plc_data.Operate
 
         for sn in range(proc.num_devices):
             machine_cfg = proc.machine_config.get(str(sn))
@@ -72,15 +86,23 @@ class MotionFrameByFramePlanning:
             device_bit = sn + 1
             device_operate_enabled = (effective_operate & (1 << device_bit)) != 0
             last_device_operate = (proc.last_operate_state & (1 << device_bit)) != 0
-            device_just_closed = last_device_operate and not device_operate_enabled
-            should_return_safe = self._should_return_safe_before_idle(
+            device_just_closed = (not force_return_safe) and last_device_operate and not device_operate_enabled
+            should_return_safe = force_return_safe or self._should_return_safe_before_idle(
                 device_operate_enabled=device_operate_enabled,
                 device_just_closed=device_just_closed,
                 clean_mode_just_closed=clean_mode_just_closed,
                 device_returning=proc.device_returning_to_origin[sn],
             )
 
+            if not device_operate_enabled and not should_return_safe:
+                self._apply_hold_device_axes(proc, machine_cfg, axis_list)
+                proc.device_origin_complete[sn] = True
+                proc.device_returning_to_origin[sn] = False
+                continue
+
             if not device_operate_enabled or should_return_safe:
+                if device_just_closed:
+                    logger.info(f"SN[{sn}] 设备由开启变为关闭：开始安全回零")
                 axis_cmds, all_ready = self._build_inactive_device_axes(
                     proc, sn, machine_cfg, runtime_cfg, machine_type, should_return_safe
                 )
@@ -98,9 +120,64 @@ class MotionFrameByFramePlanning:
             if device_enable:
                 enable_value |= 1 << device_bit
 
-        if not force_disable_all:
+        if not force_return_safe:
             enable_value |= 0x01
         return enable_value, stop_chain
+
+    def _build_hard_stop_axis_list(self, proc):
+        axis_list = create_axis_list()
+        for sn in range(proc.num_devices):
+            machine_cfg = proc.machine_config.get(str(sn))
+            if not machine_cfg or machine_cfg.get("type") == "out_lift":
+                continue
+            self._apply_hold_device_axes(proc, machine_cfg, axis_list)
+        return axis_list
+
+    @staticmethod
+    def _apply_hold_device_axes(proc, machine_cfg, axis_list):
+        machine_type = machine_cfg.get("type", "")
+        orientation = machine_cfg.get("install_orietation", "left")
+        try:
+            axis_map = get_axis_map(machine_type, orientation)
+        except Exception as exc:
+            logger.error(f"SN[{machine_cfg.get('sn', '?')}] 保持当前位置失败，相关轴发送零值: {exc}")
+            return
+        feedback_axes = getattr(proc.plc_data, "AxisList", None)
+        for axis_name, axis_index in axis_map.items():
+            if machine_type == "out_2d_servo" and axis_name == "y":
+                axis_list[axis_index] = AxisData()
+                continue
+            try:
+                current_pos = 0
+                if isinstance(feedback_axes, (list, tuple)) and axis_index < len(feedback_axes):
+                    feedback = feedback_axes[axis_index]
+                    if hasattr(feedback, "Pos"):
+                        current_pos = int(getattr(feedback, "Pos", 0) or 0)
+                    elif isinstance(feedback, (list, tuple)) and feedback:
+                        current_pos = int(feedback[0] or 0)
+                    elif isinstance(feedback, dict):
+                        current_pos = int(feedback.get("Pos", 0) or 0)
+            except (TypeError, ValueError) as exc:
+                logger.error(
+                    f"SN[{machine_cfg.get('sn', '?')}] {axis_name}反馈位置无效，当前轴发送零值: {exc}"
+                )
+                current_pos = 0
+            axis_list[axis_index] = AxisData(Pos=current_pos, Speed=0, Status=0)
+
+    @staticmethod
+    def _build_safety_fault_mask(servo_alarm, lidar_abnormal, raw_data_timeout):
+        return (1 if servo_alarm else 0) | (2 if lidar_abnormal else 0) | (4 if raw_data_timeout else 0)
+
+    @staticmethod
+    def _format_safety_faults(servo_alarm, lidar_abnormal, raw_data_timeout):
+        reasons = []
+        if servo_alarm:
+            reasons.append("伺服异常")
+        if lidar_abnormal:
+            reasons.append("雷达异常")
+        if raw_data_timeout:
+            reasons.append("采数超时")
+        return "、".join(reasons)
 
     def _build_inactive_device_axes(self, proc, sn, machine_cfg, runtime_cfg, machine_type, should_return_safe):
         """为关闭或正在安全返回的设备生成命令。"""
@@ -224,6 +301,17 @@ class MotionFrameByFramePlanning:
             runtime_cfg = proc.runtime_machine_config.get(sn, {})
             machine_type = machine_cfg.get("type", "")
             device_bit = sn + 1
+            device_operate_enabled = (proc.plc_data.Operate & (1 << device_bit)) != 0
+            last_device_operate = (proc.last_operate_state & (1 << device_bit)) != 0
+            device_just_closed = last_device_operate and not device_operate_enabled
+            should_return_safe = device_just_closed or proc.device_returning_to_origin[sn]
+            if not device_operate_enabled and not should_return_safe:
+                self._apply_hold_device_axes(proc, machine_cfg, axis_list)
+                proc.device_returning_to_origin[sn] = False
+                proc.device_origin_complete[sn] = True
+                continue
+            if device_just_closed:
+                logger.info(f"SN[{sn}] 手动模式设备由开启变为关闭：开始安全回零")
             if machine_type == "xn_updown2":
                 self.xn_updown2_planner.reset_motion_state(sn, preserve_safe_return=True)
                 axis_cmds, all_ready = self.xn_updown2_planner.request_safe_return(

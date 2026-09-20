@@ -308,7 +308,7 @@ class PlcCommunicationProcess(multiprocessing.Process):
     def _run_main_loop(self):
         """主处理循环，同时处理模拟和实际模式"""
         while True:
-            time.sleep(0.09)  # 减少CPU占用
+            time.sleep(0.005)  # 减少CPU占用
             self._heartbeat.touch()
             if not self._update_plc_data():
                 continue
@@ -357,7 +357,7 @@ class PlcCommunicationProcess(multiprocessing.Process):
                 setattr(self.plc_data, "ChainCountCM", chaincountcm)
                 self._update_chain_status(chaincountcm, self.plc_data.ChainPulse)
 
-                logger.info(f"plc tcp recv data: self.plc_data.AxisList: {self.plc_data.AxisList}")
+                logger.info(f"plc tcp recv data: Operate: {self.plc_data.Operate}, self.plc_data.AxisList: {self.plc_data.AxisList}")
                 # # 处理脉冲和定位数据
                 # self.pulse_queue.put({'pulse': self.plc_data.ChainPulse, 'fifo': self.plc_data.ChainCountCM})
 
