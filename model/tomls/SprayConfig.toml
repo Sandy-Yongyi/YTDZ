@@ -23,19 +23,19 @@ x_status_offset_min = 0
 x_status_offset_max = 300
 
 # 外侧前 X 轴偏移的界面输入范围，单位 mm
-out_front_x_offset_min = 0
-out_front_x_offset_max = 300
+out_front_x_offset_min = 100
+out_front_x_offset_max = 500
 
 # 外侧后 X 轴偏移的界面输入范围，单位 mm
-out_after_x_offset_min = 0
+out_after_x_offset_min = 100
 out_after_x_offset_max = 300
 
 # 外侧上方 Y 轴偏移的界面输入范围，单位 mm
-out_up_y_offset_min = 0
+out_up_y_offset_min = 100
 out_up_y_offset_max = 300
 
 # 外侧下方 Y 轴偏移的界面输入范围，单位 mm
-out_down_y_offset_min = 0
+out_down_y_offset_min = 100
 out_down_y_offset_max = 300
 
 # 外侧 Z 轴前定位偏移的界面输入范围，单位 mm
