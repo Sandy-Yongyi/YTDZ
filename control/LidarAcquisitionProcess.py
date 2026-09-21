@@ -71,6 +71,7 @@ class LidarAcquisitionProcess(multiprocessing.Process):
         self.last_reported_lidar_status = 0
         self.lidar_disconnected = False
         self.plc_disconnected = False
+        self.plc_connection_generation = 0
         self.lidar_reconnected = False
         self.plc_reconnected = False
         self.any_scanning_active = False
@@ -427,7 +428,15 @@ class LidarAcquisitionProcess(multiprocessing.Process):
 
         while True:
             try:
-                latest_pulse_data = self.pulse_queue.get_nowait()
+                pulse_data = self.pulse_queue.get_nowait()
+                if pulse_data.get("pulse", 0) == -999:
+                    self.plc_disconnected = True
+                    self.plc_connection_generation = int(
+                        pulse_data.get("plc_generation", self.plc_connection_generation) or 0
+                    )
+                    logger.warning("PLC disconnected detected!")
+                    return self.current_pulse, getattr(self, "current_fifo", 0), "stopped"
+                latest_pulse_data = pulse_data
             except queue.Empty:
                 break
             except Exception as e:
@@ -436,12 +445,10 @@ class LidarAcquisitionProcess(multiprocessing.Process):
 
         if latest_pulse_data is not None:
             pulse_value = latest_pulse_data.get('pulse', 0)
-            if pulse_value == -999:
-                self.plc_disconnected = True
-                logger.warning("PLC disconnected detected!")
-                return self.current_pulse, getattr(self, "current_fifo", 0), "stopped"
-
             self.plc_disconnected = False
+            self.plc_connection_generation = int(
+                latest_pulse_data.get("plc_generation", self.plc_connection_generation) or 0
+            )
             if self.current_pulse != pulse_value:
                 self.current_pulse = pulse_value
 
@@ -460,6 +467,8 @@ class LidarAcquisitionProcess(multiprocessing.Process):
         # 检测从断连状态恢复
         if was_disconnected and not self.plc_disconnected:
             self.plc_reconnected = True
+            if is_frame_by_frame_mode(self.strategy_name):
+                self.last_sent_fifo = int(getattr(self, "current_fifo", 0) or 0)
             logger.info("PLC reconnected")
         # logger.debug(f"Updated pulse data: pulse={self.current_pulse}, fifo={getattr(self, 'current_fifo', 'N/A')}, status={self.current_status}")
         return self.current_pulse, getattr(self, "current_fifo", 0), self.current_status
@@ -523,6 +532,7 @@ class LidarAcquisitionProcess(multiprocessing.Process):
         self.raw_data_queue.put({
             "lidar_status": int(self.lidar_status),
             "reset_queue": bool(reset_queue),
+            "plc_generation": int(self.plc_connection_generation),
         })
 
     def _poll_lidar_status_if_due(self, force: bool = False):
@@ -861,7 +871,12 @@ class LidarAcquisitionProcess(multiprocessing.Process):
         accum = self.cm_accum[fifo_key]
 
         # 根据激光配置中非空的方向动态构建各方向帧数据
-        fifo_data = {"fifo": real_fifo_key, "repeat_count": repeat_count, "lidar_status": int(self.lidar_status)}
+        fifo_data = {
+            "fifo": real_fifo_key,
+            "repeat_count": repeat_count,
+            "lidar_status": int(self.lidar_status),
+            "plc_generation": int(self.plc_connection_generation),
+        }
         for direction in self.active_directions:
             frame = self.build_side_frame(accum, direction, self.read_data_config)
             fifo_data[direction] = frame

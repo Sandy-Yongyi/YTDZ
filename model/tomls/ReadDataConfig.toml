@@ -21,13 +21,13 @@ combined_y_max = 3000
 
 # 左侧激光滤波范围
 left_x_min = 1030
-left_x_max = 1860
+left_x_max = 1960
 left_y_min = 1060
 left_y_max = 3000
 
 # 右侧激光滤波范围
 right_x_min = 1080
-right_x_max = 1880
+right_x_max = 1980
 right_y_min = 1060
 right_y_max = 3000
 
@@ -68,7 +68,7 @@ left_scan_points_threshold = 10          # 左侧少于该点数时不认为是�
 right_scan_points_threshold = 10         # 右侧少于该点数时不认为是有效数据
 left_upper_scan_points_threshold = 10    # 左上侧少于该点数时不认为是有效数据
 right_upper_scan_points_threshold = 10   # 右上侧少于该点数时不认为是有效数据
-max_scan_length = 10000                  # 超过该扫描长度时自动结束当前工件，单位 mm
+max_scan_length = 2000                  # 超过该扫描长度时自动结束当前工件，单位 mm
 
 
 # -----------------------------------------------------------------------------
@@ -88,7 +88,7 @@ lidar_connect_max_retries = 10000        # 激光雷达最大重连次数
 plc_connect_max_retries = 10000          # PLC 最大重连次数
 raw_data_timeout_s = 10                  # 链条运动时超过该秒数未收到新激光帧，则停链保护
 socket_recv_poll_timeout_ms = 50          # Socket单次接收等待时长，单位毫秒；只等待响应，不重复发送请求
-socket_recv_max_attempts = 30              # 单次通信最多等待3个接收时间片，总超时约150毫秒
+socket_recv_max_attempts = 20              # 单次通信最多等待3个接收时间片，总超时约150毫秒
 process_heartbeat_interval_s = 1          # 子进程正常运行时更新共享心跳的最小间隔，单位秒
 process_unresponsive_timeout_s = 60       # 主进程判定子进程无响应的心跳超时阈值，单位秒
 

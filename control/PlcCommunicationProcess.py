@@ -67,6 +67,8 @@ class PlcCommunicationProcess(multiprocessing.Process):
         self.fifo_unit_mm = 2
         self.workpiece_fifo_step_mm = 5
         self.plc_connected = False
+        self.plc_reconnect_pending = False
+        self.plc_connection_generation = 0
         self.pulse_history = []
         self.chain_motion_status = "stopped"
         self.lidar_status = 0
@@ -220,6 +222,7 @@ class PlcCommunicationProcess(multiprocessing.Process):
         self.last_synced_chain_fifo = None
         self.current_cycle_raw_shift_steps = 0
         self.raw_data_timeout_active = False
+        self.reconnect_raw_packet_floor_fifo = None
         self.last_workpiece_chain_mm = {}
         self.last_workpiece_chain_mm_residual = {}
 
@@ -317,6 +320,7 @@ class PlcCommunicationProcess(multiprocessing.Process):
                 # self._process_workpiece_data()
                 # self._sync_complete_workpiece_positions()
             else:
+                self._resync_frame_queue_after_plc_reconnect()
                 self.current_cycle_raw_shift_steps = 0
                 self._process_frame_data()
                 self._sync_frame_queue_with_chain_fifo()
@@ -367,6 +371,7 @@ class PlcCommunicationProcess(multiprocessing.Process):
             # 处理连接异常
             if not self.simulation_mode:
                 logger.error(f"Connection error during operation: {str(e)}")
+                self._mark_plc_disconnected()
                 # 尝试重连
                 if not self._handle_connection_error(self.plc):
                     logger.error("Failed to reconnect after connection loss. Exiting process.")
@@ -422,7 +427,12 @@ class PlcCommunicationProcess(multiprocessing.Process):
             if status in ("moving_forward", "moving_reverse") and last_status == "stopped":
                 self._reset_raw_data_timeout_timer(fifo=fifo)
         logger.info(f"PLC chain status changed: pulse={pulse}, fifo={fifo}, status={status}")
-        self.pulse_queue.put({"pulse": pulse, "fifo": fifo, "status": status})
+        self.pulse_queue.put({
+            "pulse": pulse,
+            "fifo": fifo,
+            "status": status,
+            "plc_generation": self.plc_connection_generation,
+        })
 
     def _update_lidar_status_from_packet(self, fifo_data: dict):
         if "lidar_status" in fifo_data:
@@ -441,6 +451,8 @@ class PlcCommunicationProcess(multiprocessing.Process):
                 self._update_lidar_status_from_packet(fifo_data)
                 if self._should_skip_raw_packet():
                     continue
+                if self._should_drop_reconnect_raw_packet(fifo_data):
+                    continue
                 if bool(fifo_data.get("reset_queue", False)):
                     self._clear_all_frame_queues()
 
@@ -458,6 +470,22 @@ class PlcCommunicationProcess(multiprocessing.Process):
                     self._handle_frame_packet_received(fifo_data, repeat_count)
         except Exception as e:
             logger.error(f"Error processing raw data from queue: {e}")
+
+    def _should_drop_reconnect_raw_packet(self, fifo_data: dict) -> bool:
+        """重连补空后丢弃不晚于同步基准的旧包，避免队列被再次推进。"""
+        floor_fifo = getattr(self, "reconnect_raw_packet_floor_fifo", None)
+        if floor_fifo is None or "fifo" not in fifo_data:
+            return False
+
+        packet_fifo = int(fifo_data.get("fifo", 0) or 0)
+        if self._get_fifo_step_delta(floor_fifo, packet_fifo) <= 0:
+            logger.warning(
+                f"Ignore stale lidar frame after PLC reconnect: floor={floor_fifo}, packet={packet_fifo}"
+            )
+            return True
+
+        self.reconnect_raw_packet_floor_fifo = None
+        return False
 
     # def _process_workpiece_data(self):
     #     """complete_workpiece 模式处理整件数据队列。"""
@@ -576,6 +604,31 @@ class PlcCommunicationProcess(multiprocessing.Process):
 
         self.current_cycle_raw_shift_steps = 0
         self._update_raw_data_watchdog()
+
+    def _resync_frame_queue_after_plc_reconnect(self):
+        """PLC 重连后按实际 FIFO 缺口补空帧，保留断线前已有帧的位置关系。"""
+        if not getattr(self, "plc_reconnect_pending", False):
+            return
+
+        current_fifo = int(getattr(self.plc_data, "ChainCountCM", 0) or 0)
+        previous_fifo = self.last_synced_chain_fifo
+        gap = 0 if previous_fifo is None else self._get_fifo_step_delta(previous_fifo, current_fifo)
+        if gap > 0:
+            self._push_empty_frames(gap)
+            logger.warning(
+                f"PLC reconnect fifo gap filled with empty frames: last_synced={previous_fifo}, "
+                f"cur={current_fifo}, gap={gap}"
+            )
+        elif gap < 0:
+            logger.warning(
+                f"PLC reconnect fifo moved backward unexpectedly: last_synced={previous_fifo}, "
+                f"cur={current_fifo}, reset sync base"
+            )
+
+        self.last_synced_chain_fifo = current_fifo
+        self.reconnect_raw_packet_floor_fifo = current_fifo
+        self.current_cycle_raw_shift_steps = 0
+        self.plc_reconnect_pending = False
 
     # def _sync_complete_workpiece_positions(self):
     #     """完整工件模式下，按链条当前位置持续更新队列内工件的 `fifo_frame_pos`。"""
@@ -839,3 +892,25 @@ class PlcCommunicationProcess(multiprocessing.Process):
 
         logger.error(f"Failed to reconnect to PLC after {max_retries} attempts")
         return False
+
+    def _mark_plc_disconnected(self):
+        """立即暂停链条相关计时，并通知激光进程 PLC 已断连。"""
+        self.plc_connected = False
+        self.chain_motion_status = "stopped"
+        self.raw_data_timeout_active = False
+        self.pulse_history.clear()
+        if not self.plc_reconnect_pending:
+            self.plc_connection_generation += 1
+        self.plc_reconnect_pending = True
+
+        plc_data = getattr(self, "plc_data", None)
+        if plc_data is not None:
+            setattr(plc_data, "ChainStatus", "stopped")
+        fifo = int(getattr(plc_data, "ChainCountCM", 0) or 0)
+        self.pulse_queue.put({
+            "pulse": -999,
+            "fifo": fifo,
+            "status": "stopped",
+            "plc_generation": self.plc_connection_generation,
+        })
+        logger.warning(f"PLC disconnected, lidar acquisition paused at fifo={fifo}")

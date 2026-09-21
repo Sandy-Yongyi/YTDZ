@@ -159,7 +159,7 @@ class MainFrameController(MainFrame):
             print("系统已在运行中")
             return
 
-        print("now start main.exe version is 2026/8/27 PM")
+        print("now start main.exe version is 2026/9/21 PM")
         print("启动系统...")
         if is_complete_workpiece_mode(self.strategy_name):
             print("启动系统模式错误, 请启动按帧采集模式")
