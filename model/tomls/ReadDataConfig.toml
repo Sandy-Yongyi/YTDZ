@@ -68,7 +68,7 @@ left_scan_points_threshold = 10          # 左侧少于该点数时不认为是�
 right_scan_points_threshold = 10         # 右侧少于该点数时不认为是有效数据
 left_upper_scan_points_threshold = 10    # 左上侧少于该点数时不认为是有效数据
 right_upper_scan_points_threshold = 10   # 右上侧少于该点数时不认为是有效数据
-max_scan_length = 2000                  # 超过该扫描长度时自动结束当前工件，单位 mm
+max_scan_length = 5000                  # 超过该扫描长度时自动结束当前工件，单位 mm
 
 
 # -----------------------------------------------------------------------------

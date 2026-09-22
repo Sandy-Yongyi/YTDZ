@@ -1,4 +1,4 @@
-left_lidar_ids = ["1", "2"]
-right_lidar_ids = ["3"]
+left_lidar_ids = ["3"]
+right_lidar_ids = ["1", "2"]
 left_upper_lidar_ids = []
 right_upper_lidar_ids = []
