@@ -13,6 +13,7 @@ class XNUpdown2FrameGeometry:
     raw_x_max: int | None = None
     raw_y_min: int | None = None
     band_y_max: int | None = None
+    band_x_min: int | None = None
 
 
 class XNUpdown2FrameSearchHelper:
@@ -42,6 +43,7 @@ class XNUpdown2FrameSearchHelper:
         x_max_values = []
         y_values = []
         band_y_values = []
+        band_x_min_values = []
 
         for frame_index in range(window[0], window[1] + 1):
             frame = frames[frame_index]
@@ -57,6 +59,7 @@ class XNUpdown2FrameSearchHelper:
                 x_max_values.append(v_axis_max)
                 if y2_band_min <= h_axis <= y2_band_max:
                     band_y_values.append(h_axis)
+                    band_x_min_values.append(v_axis_min)
 
         if not y_values or not x_min_values or not x_max_values:
             return XNUpdown2FrameGeometry()
@@ -67,6 +70,7 @@ class XNUpdown2FrameSearchHelper:
             raw_x_max=max(x_max_values),
             raw_y_min=min(y_values),
             band_y_max=max(band_y_values) if band_y_values else None,
+            band_x_min=min(band_x_min_values) if band_x_min_values else None,
         )
 
     def _get_work_window(self, machine_cfg, runtime_cfg, frame_count: int):

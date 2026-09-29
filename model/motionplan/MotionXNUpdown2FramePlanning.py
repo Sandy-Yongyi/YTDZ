@@ -31,6 +31,9 @@ class XNUpdown2GroupState:
     phase: str = "return_safe_x"
     x_direction: str = "to_max"
     target: XNUpdown2GunTarget | None = None
+    spray_started: bool = False
+    chain_x_min_target: int | None = None
+    chain_y_hold_target: int | None = None
 
 
 @dataclass
@@ -84,6 +87,18 @@ class MotionXNUpdown2FramePlanning:
             for group_id in (1, 2):
                 group_target = targets.get(group_id)
                 group_state = state.groups[group_id]
+                if (
+                    group_id == 2
+                    and self._top_chain_hold_enabled(machine_cfg)
+                    and self._top_is_over_limit(machine_cfg, runtime_cfg, geometry)
+                ):
+                    chain_x_min = self._top_band_x_min_target(machine_cfg, runtime_cfg, geometry)
+                    if chain_x_min is not None and self._hold_top_for_chain(
+                        machine_cfg, plc_data, group_state, chain_x_min
+                    ):
+                        continue
+                    self._start_safe_return(group_state)
+                    continue
                 if group_target is None:
                     self._start_safe_return(group_state)
                     continue
@@ -147,6 +162,17 @@ class MotionXNUpdown2FramePlanning:
                 clamp_to_limit_yx(raw_x_max_target, x_min_limit, x_max_limit),
             )
 
+        if self._top_chain_hold_enabled(machine_cfg) and geometry.band_x_min is not None:
+            x2_min_limit, x2_max_limit = get_axis_position_limits(machine_cfg, "x2")
+            x_targets[2] = (
+                clamp_to_limit_yx(
+                    int(geometry.band_x_min) - front_offset - x_position,
+                    x2_min_limit,
+                    x2_max_limit,
+                ),
+                x_targets[2][1],
+            )
+
         y1_target = self._clamp_target(machine_cfg, "y1", int(geometry.raw_y_min or 0) - down_offset - origin_pos[0])
 
         targets: dict[int, XNUpdown2GunTarget | None] = {
@@ -166,8 +192,51 @@ class MotionXNUpdown2FramePlanning:
         targets[2] = XNUpdown2GunTarget(y2_target, *x_targets[2])
         return targets
 
+    @staticmethod
+    def _top_chain_hold_enabled(machine_cfg):
+        return machine_cfg.get("top_chain_hold_enabled", False) is True
+
+    def _top_is_over_limit(self, machine_cfg, runtime_cfg, geometry):
+        if geometry.band_y_max is None:
+            return False
+        origin_pos = self._get_int_list(machine_cfg, "origin_pos")
+        up_offset = self._get_runtime_int(machine_cfg, runtime_cfg, "out_up_y_offset", 100)
+        _, y2_max_limit = get_axis_position_limits(machine_cfg, "y2")
+        return int(geometry.band_y_max) + up_offset > origin_pos[1] + y2_max_limit
+
+    def _top_band_x_min_target(self, machine_cfg, runtime_cfg, geometry):
+        if geometry.band_x_min is None:
+            return None
+        x_position = self._get_runtime_int(machine_cfg, runtime_cfg, "x_position", 0)
+        front_offset = self._get_runtime_int(machine_cfg, runtime_cfg, "out_front_x_offset", 100)
+        return self._clamp_target(machine_cfg, "x2", int(geometry.band_x_min) - front_offset - x_position)
+
+    def _hold_top_for_chain(self, machine_cfg, plc_data, state, chain_x_min_target):
+        if state.phase == "chain_hold":
+            state.chain_x_min_target = chain_x_min_target
+            return True
+        if (
+            state.phase not in {"reciprocating", "retract_for_y"}
+            or state.target is None
+            or not state.spray_started
+        ):
+            return False
+        state.phase = "chain_hold"
+        state.chain_x_min_target = chain_x_min_target
+        state.chain_y_hold_target = self._get_axis_pos(machine_cfg, plc_data, "y2")
+        return True
+
     def _update_group_target(self, machine_cfg, runtime_cfg, plc_data, group_id, state, next_target):
         previous_target = state.target
+        if state.phase == "chain_hold":
+            current_y = self._get_axis_pos(machine_cfg, plc_data, f"y{group_id}")
+            y_unchanged = self._has_arrived(current_y, next_target.y_target)
+            state.chain_x_min_target = None
+            state.chain_y_hold_target = None
+            state.target = next_target
+            state.x_direction = "to_max"
+            state.phase = "reciprocating" if y_unchanged else "retract_for_y"
+            return
         if state.phase in SAFE_PHASES or previous_target is None:
             state.phase = "positioning"
             state.x_direction = "to_max"
@@ -215,6 +284,18 @@ class MotionXNUpdown2FramePlanning:
         spray_status = 1 if self._is_chain_running(plc_data) else 0
         target = state.target
 
+        if state.phase == "chain_hold":
+            if group_id != 2 or state.chain_x_min_target is None or state.chain_y_hold_target is None:
+                raise ValueError("顶枪链条保持状态缺少锁存目标")
+            x_arrived = self._has_arrived(current_x, state.chain_x_min_target)
+            return {
+                x_name: self._build_axis(
+                    machine_cfg, x_name, state.chain_x_min_target,
+                    0 if x_arrived else x_recip_speed, spray_status,
+                ),
+                y_name: self._build_axis(machine_cfg, y_name, state.chain_y_hold_target, 0, 0),
+            }, False
+
         if state.phase == "positioning":
             axis_cmds = {
                 x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_pos_speed, 0),
@@ -226,9 +307,12 @@ class MotionXNUpdown2FramePlanning:
             return axis_cmds, False
 
         if state.phase == "retract_for_y":
+            retract_status = spray_status
+            if group_id == 2 and self._top_chain_hold_enabled(machine_cfg) and not state.spray_started:
+                retract_status = 0
             axis_cmds = {
                 y_name: self._build_axis(machine_cfg, y_name, current_y, 0, 0),
-                x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_recip_speed, spray_status),
+                x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_recip_speed, retract_status),
             }
             if self._has_arrived(current_x, target.x_min_target):
                 state.phase = "reposition_y"
@@ -236,6 +320,21 @@ class MotionXNUpdown2FramePlanning:
             return axis_cmds, False
 
         if state.phase == "reposition_y":
+            if group_id == 2 and self._top_chain_hold_enabled(machine_cfg):
+                if not self._has_arrived(current_x, target.x_min_target):
+                    return {
+                        x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_pos_speed, 0),
+                        y_name: self._build_axis(machine_cfg, y_name, current_y, 0, 0),
+                    }, False
+                y_arrived = self._has_arrived(current_y, target.y_target)
+                axis_cmds = {
+                    x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, 0, 0),
+                    y_name: self._build_axis(machine_cfg, y_name, target.y_target, 0 if y_arrived else y_pos_speed, 0),
+                }
+                if y_arrived:
+                    state.phase = "reciprocating"
+                    state.x_direction = "to_max"
+                return axis_cmds, False
             axis_cmds = {
                 x_name: self._build_axis(machine_cfg, x_name, target.x_min_target, x_pos_speed, 0),
                 y_name: self._build_axis(machine_cfg, y_name, target.y_target, y_pos_speed, 0),
@@ -254,6 +353,8 @@ class MotionXNUpdown2FramePlanning:
             state.x_direction = "to_max"
 
         x_target = target.x_max_target if state.x_direction == "to_max" else target.x_min_target
+        if group_id == 2 and self._top_chain_hold_enabled(machine_cfg) and spray_status == 1:
+            state.spray_started = True
         return {
             x_name: self._build_axis(machine_cfg, x_name, x_target, x_recip_speed, spray_status),
             y_name: self._build_axis(machine_cfg, y_name, target.y_target, y_pos_speed, 0),
@@ -298,6 +399,9 @@ class MotionXNUpdown2FramePlanning:
         state.phase = "return_safe_x"
         state.x_direction = "to_max"
         state.target = None
+        state.spray_started = False
+        state.chain_x_min_target = None
+        state.chain_y_hold_target = None
 
     @staticmethod
     def _reset_device_state(device_state, preserve_safe_return):
