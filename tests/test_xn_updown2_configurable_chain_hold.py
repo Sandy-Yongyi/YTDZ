@@ -72,6 +72,37 @@ class ConfigurableTopChainHoldTests(unittest.TestCase):
         self.assertEqual((530, 500, 0), (commands["y2"].Pos, commands["y2"].Speed, commands["y2"].Status))
         self.assertEqual(35, commands["x1"].Pos)
 
+    def test_right_top_sprays_at_latest_xmin_without_reciprocating(self):
+        machine = self.machine(2)
+
+        commands = self.start_right_spraying(machine)
+        self.assertEqual((135, 300, 1), (commands["x2"].Pos, commands["x2"].Speed, commands["x2"].Status))
+
+        self.feedback("right", x2=135)
+        commands = self.step(machine)
+        self.assertEqual((135, 300, 1), (commands["x2"].Pos, commands["x2"].Speed, commands["x2"].Status))
+
+        self.points("right", (1200, 1300, 2000), (2400, 1450, 1900))
+        commands = self.step(machine)
+        self.assertEqual((185, 300, 1), (commands["x2"].Pos, commands["x2"].Speed, commands["x2"].Status))
+
+        self.feedback("right", x2=185)
+        commands = self.step(machine)
+        self.assertEqual((185, 300, 1), (commands["x2"].Pos, commands["x2"].Speed, commands["x2"].Status))
+
+    def test_right_top_does_not_resume_reciprocating_after_chain(self):
+        machine = self.machine(2)
+        self.start_right_spraying(machine)
+        self.feedback("right", x2=600, y2=525)
+        self.points("right", (1200, 1300, 2000), (2400, 1400, 1900), (2950, 1500, 1800))
+        self.step(machine)
+
+        self.feedback("right", x2=135)
+        self.points("right", (1200, 1300, 2000), (2400, 1400, 1900))
+        commands = self.step(machine)
+
+        self.assertEqual((135, 300, 1), (commands["x2"].Pos, commands["x2"].Speed, commands["x2"].Status))
+
     def test_right_top_holds_feedback_y_and_retracts_to_band_xmin_with_powder(self):
         machine = self.machine(2)
         self.assertEqual(1, self.start_right_spraying(machine)["x2"].Status)

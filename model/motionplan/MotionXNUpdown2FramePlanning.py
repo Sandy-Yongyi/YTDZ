@@ -347,14 +347,17 @@ class MotionXNUpdown2FramePlanning:
         if state.phase != "reciprocating":
             raise ValueError(f"未知组状态: {state.phase}")
 
-        if state.x_direction == "to_max" and self._has_arrived(current_x, target.x_max_target):
-            state.x_direction = "to_min"
-        elif state.x_direction == "to_min" and self._has_arrived(current_x, target.x_min_target):
-            state.x_direction = "to_max"
-
-        x_target = target.x_max_target if state.x_direction == "to_max" else target.x_min_target
-        if group_id == 2 and self._top_chain_hold_enabled(machine_cfg) and spray_status == 1:
-            state.spray_started = True
+        fixed_top = group_id == 2 and self._top_chain_hold_enabled(machine_cfg)
+        if fixed_top:
+            x_target = target.x_min_target
+            if spray_status == 1:
+                state.spray_started = True
+        else:
+            if state.x_direction == "to_max" and self._has_arrived(current_x, target.x_max_target):
+                state.x_direction = "to_min"
+            elif state.x_direction == "to_min" and self._has_arrived(current_x, target.x_min_target):
+                state.x_direction = "to_max"
+            x_target = target.x_max_target if state.x_direction == "to_max" else target.x_min_target
         return {
             x_name: self._build_axis(machine_cfg, x_name, x_target, x_recip_speed, spray_status),
             y_name: self._build_axis(machine_cfg, y_name, target.y_target, y_pos_speed, 0),
